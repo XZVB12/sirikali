@@ -40,10 +40,21 @@ public:
 	engines::engine::status errorCode( const QString& e,int s ) const override ;
 
 	engines::engine::args command( const QByteArray& password,
-				       const engines::engine::cmdArgsList& args ) const override ;
+				       const engines::engine::cmdArgsList& args,
+				       bool create ) const override ;
 
 	void GUICreateOptions( const engines::engine::createGUIOptions& ) const override ;
 private:
+	struct resolveStruct{
+		const QString& controlStructure ;
+		const engines::engine::cmdArgsList& args ;
+		const QByteArray& password ;
+		const QStringList& createOpts ;
+		const QStringList& fuseOpts ;
+	} ;
+
+	QStringList resolve( const resolveStruct& ) const ;
+
 	const QString m_mountControlStructure ;
 	const QString m_createControlStructure ;
 	engines::version m_version ;

@@ -160,6 +160,21 @@ QString settings::windowsExecutableSearchPath()
 	return m_settings.value( "WindowsExecutableSearchPath" ).toString() ;
 }
 
+int settings::windowsPbkdf2Interations()
+{
+	if( !m_settings.contains( "WindowsPbkdf2Interations" ) ){
+
+		m_settings.setValue( "WindowsPbkdf2Interations",50000 ) ;
+	}
+
+	return m_settings.value( "WindowsPbkdf2Interations" ).toInt() ;
+}
+
+int windowsPbkdf2Interations()
+{
+	return settings::instance().windowsPbkdf2Interations() ;
+}
+
 QByteArray windowsKeysStorageData()
 {
 	return settings::instance().windowsKeysStorageData() ;
@@ -172,17 +187,17 @@ void windowsKeysStorageData( const QByteArray& e )
 
 QByteArray settings::windowsKeysStorageData()
 {
-	if( !m_settings.contains( "windowsKeysStorageData" ) ){
+	if( !m_settings.contains( "LXQtWindowsDPAPI_Data" ) ){
 
-		m_settings.setValue( "windowsKeysStorageData",QByteArray() ) ;
+		m_settings.setValue( "LXQtWindowsDPAPI_Data",QByteArray() ) ;
 	}
 
-	return m_settings.value( "windowsKeysStorageData" ).toByteArray() ;
+	return m_settings.value( "LXQtWindowsDPAPI_Data" ).toByteArray() ;
 }
 
 void settings::windowsKeysStorageData( const QByteArray& e )
 {
-	m_settings.setValue( "windowsKeysStorageData",e ) ;
+	m_settings.setValue( "LXQtWindowsDPAPI_Data",e ) ;
 }
 
 QString settings::externalPluginExecutable()
@@ -880,7 +895,7 @@ void settings::autoMountBackEnd( const settings::walletBackEnd& e )
 
 			return "osxkeychain" ;
 
-		}else if( e == SiriKali::Windows::windowsWalletBackend() ){
+		}else if( e == LXQt::Wallet::BackEnd::windows_dpapi ){
 
 			return "windows_DPAPI" ;
 		}else{
@@ -918,7 +933,7 @@ settings::walletBackEnd settings::autoMountBackEnd()
 
 		}else if( e == "windows_DPAPI" ){
 
-			return SiriKali::Windows::windowsWalletBackend() ;
+			return LXQt::Wallet::BackEnd::windows_dpapi ;
 		}else{
 			return settings::walletBackEnd() ;
 		}

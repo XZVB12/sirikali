@@ -58,6 +58,16 @@ static QString _OSXKeyChain()
 	return QObject::tr( "OSX KeyChain" ) ;
 }
 
+static QString _windowsDPAPI()
+{
+	return QObject::tr( "Windows DPAPI" ) ;
+}
+
+/*
+ *
+ * Called when mounting volumes
+ *
+ */
 keyDialog::keyDialog( QWidget * parent,
 		      secrets& s,
 		      bool o,
@@ -74,7 +84,6 @@ keyDialog::keyDialog( QWidget * parent,
 	m_settings( settings::instance() ),
 	m_done( std::move( f ) ),
 	m_updateVolumeList( std::move( g ) ),
-	m_volumes( std::move( z ) ),
 	m_walletKey( s )
 {
 	m_ui->setupUi( this ) ;
@@ -86,30 +95,50 @@ keyDialog::keyDialog( QWidget * parent,
 
 	this->setUpInitUI() ;
 
+	/*
+	 * We are sorting in a way that makes all volumes that meet below two criteria to appear first.
+	 *
+	 * 1. Have auto mount option set.
+	 * 2. Have password.
+	 */
+
+	favorites::volumeList b ;
+
+	for( auto&& it : z ){
+
+		if( it.first.autoMount.True() && !it.second.isEmpty() ){
+
+			m_volumes.emplace_back( std::move( it ) ) ;
+		}else{
+			b.emplace_back( std::move( it ) ) ;
+		}
+	}
+
+	for( auto&& it : b ){
+
+		m_volumes.emplace_back( std::move( it ) ) ;
+	}
+
 	if( this->mountedAll() ){
 
 		this->HideUI() ;
 	}else{
-		this->setVolumeToUnlock() ;
-
 		this->ShowUI() ;
+
+		this->setVolumeToUnlock() ;
 	}
 }
 
-void keyDialog::autoMount( const favorites::entry& e )
+void keyDialog::autoMount( const favorites::entry& e,const QByteArray& key )
 {
-	if( e.volumeNeedNoPassword ){
-
-		if( !this->isVisible() ){
-
-			this->ShowUI() ;
-		}
-
-		this->disableAll() ;
-
-		utility::Task::suspendForOneSecond() ;
+	if( e.volumeNeedNoPassword ){		
 
 		this->openVolume() ;
+	}else{
+		if( e.autoMount.True() && !key.isEmpty() ){
+
+			this->openVolume() ;
+		}
 	}
 }
 
@@ -123,8 +152,12 @@ void keyDialog::unlockVolume()
 	}
 }
 
-keyDialog::keyDialog( QWidget * parent,
-		      secrets& s,
+/*
+ *
+ * Called when creating volumes
+ *
+ */
+keyDialog::keyDialog( QWidget * parent,secrets& s,
 		      const volumeInfo& e,
 		      std::function< void() > p,
 		      std::function< void() > l,
@@ -304,6 +337,11 @@ void keyDialog::setUpInitUI()
 		m_ui->cbKeyType->addItem( _OSXKeyChain() ) ;
 	}
 
+	if( LXQt::Wallet::backEndIsSupported( LXQt::Wallet::BackEnd::windows_dpapi ) ){
+
+		m_ui->cbKeyType->addItem( _windowsDPAPI() ) ;
+	}
+
 	if( m_create ){
 
 		if( m_keyStrength ){
@@ -346,7 +384,7 @@ void keyDialog::setVolumeToUnlock()
 		this->windowSetTitle( tr( "(%1/%2) Unlocking \"%3\"" ).arg( a,b,m_path ) ) ;
 	}
 
-	this->autoMount( m.first ) ;
+	this->autoMount( m.first,m.second ) ;
 }
 
 void keyDialog::setUpVolumeProperties( const volumeInfo& e,const QByteArray& key )
@@ -893,7 +931,7 @@ void keyDialog::pbOpen()
 
 	if( m_ui->cbKeyType->currentIndex() > keyDialog::keyKeyFile ){
 
-		utility::wallet w ;
+		secrets::wallet::walletKey w ;
 
 		auto wallet = m_ui->lineEditKey->text() ;
 
@@ -901,6 +939,7 @@ void keyDialog::pbOpen()
 		auto gnome    = wallet == _gnomeWallet() ;
 		auto internal = wallet == _internalWallet() ;
 		auto osx      = wallet == _OSXKeyChain() ;
+		auto win      = wallet == _windowsDPAPI() ;
 
 		/*
 		 * Figure out which wallet is used. Defaults to 'internal'
@@ -920,17 +959,19 @@ void keyDialog::pbOpen()
 		}else if( wallet == _OSXKeyChain() ){
 
 			bkwallet = LXQt::Wallet::BackEnd::osxkeychain ;
+
+		}else if( wallet == _windowsDPAPI() ){
+
+			bkwallet = LXQt::Wallet::BackEnd::windows_dpapi ;
 		}
 
 		if( kde || gnome || osx ){
 
-			w = utility::getKey( m_path,m_secrets.walletBk( bkwallet ).bk() ) ;
+			w = m_secrets.walletBk( bkwallet ).getKey( m_path ) ;
 
-		}else if( internal ){
+		}else if( internal || win ){
 
-			using bk = LXQt::Wallet::BackEnd ;
-
-			w = utility::getKey( m_path,m_secrets.walletBk( bk::internal ).bk(),this ) ;
+			w = m_secrets.walletBk( LXQt::Wallet::BackEnd::internal ).getKey( m_path,this ) ;
 
 			if( w.notConfigured ){
 
@@ -964,7 +1005,7 @@ void keyDialog::openMountPoint( const QString& m )
 {
 	if( m_settings.autoOpenFolderOnMount() ){
 
-		utility::Task::exec( m_fileManagerOpen + " " + utility::Task::makePath( m ) ) ;
+		utility::Task::exec( m_fileManagerOpen,{ m } ) ;
 	}
 }
 
@@ -1045,7 +1086,7 @@ void keyDialog::pbOK()
 
 void keyDialog::encryptedFolderCreate()
 {
-	utility::raii deleteKey( [ & ](){ m_walletKey.deleteKey() ; } ) ;
+	utility2::raii deleteKey( [ & ](){ m_walletKey.deleteKey() ; } ) ;
 
 	auto path = m_ui->lineEditFolderPath->text() ;
 
@@ -1271,7 +1312,19 @@ void keyDialog::setKeyInWallet()
 		}
 	}() ;
 
-	auto _add_key = [ & ]{
+	auto m = [ & ](){
+
+		if( w->backEnd() == LXQt::Wallet::BackEnd::internal ){
+
+			return w.openSync( [](){ return true ; },
+					   [ this ](){ this->hide() ; },
+					   [ this ](){ this->show() ; } ) ;
+		}else{
+			return w.open( [](){ return true ; } ) ;
+		}
+	}() ;
+
+	if( m ){
 
 		QString id ;
 
@@ -1301,7 +1354,7 @@ void keyDialog::setKeyInWallet()
 
 				this->openVolume() ;
 
-				return true ;
+				return ;
 			}else{
 				m_ui->labelSetKey->setText( tr( "Failed To Add A Volume To The A Wallet." ) ) ;
 			}
@@ -1309,41 +1362,9 @@ void keyDialog::setKeyInWallet()
 			m_ui->labelSetKey->setText( tr( "Volume Already Exists In The Wallet." ) ) ;
 		}
 
-		return false ;
-	} ;
-
-	if( w->opened() ){
-
-		if( _add_key() ){
-
-			return ;
-		}
+		return ;
 	}else{
-		w->setImage( QIcon( ":/sirikali" ) ) ;
-
-		auto bk = w->backEnd() ;
-		bool s ;
-
-		if( bk == LXQt::Wallet::BackEnd::internal ){
-
-			this->hide() ;
-
-			s = w->open( m_settings.walletName( bk ),m_settings.applicationName() ) ;
-
-			this->show() ;
-		}else{
-			s = w->open( m_settings.walletName( bk ),m_settings.applicationName() ) ;
-		}
-
-		if( s ){
-
-			if( _add_key() ){
-
-				return ;
-			}
-		}else{
-			m_ui->labelSetKey->setText( tr( "Failed To Open Wallet." ) ) ;
-		}
+		m_ui->labelSetKey->setText( tr( "Failed To Open Wallet." ) ) ;
 	}
 
 	_enable_all() ;
@@ -1390,11 +1411,15 @@ void keyDialog::pbSetKey()
 
 				return QByteArray() ;
 			}else{
-				exe = exe + " " + utility::Task::makePath( keyFile ) ;
-
 				const auto& env = utility::systemEnvironment() ;
 
-				return utility::Task( exe,20000,env,passphrase.toUtf8() ).stdOut() ;
+				auto e = utility::split( exe,' ' ) ;
+
+				exe = e.takeAt( 0 ) ;
+
+				e.append( keyFile ) ;
+
+				return utility::Task( exe,e,20000,env,passphrase.toUtf8() ).stdOut() ;
 			}
 		}
 

@@ -31,6 +31,7 @@ static engines::engine::BaseOptions _setOptions()
 	s.supportsMountPathsOnWindows = true ;
 	s.autorefreshOnMountUnMount   = true ;
 	s.backendRequireMountPath     = true ;
+	s.backendRunsInBackGround     = true ;
 	s.requiresPolkit        = false ;
 	s.customBackend         = false ;
 	s.requiresAPassword     = true ;
@@ -38,15 +39,18 @@ static engines::engine::BaseOptions _setOptions()
 	s.autoMountsOnCreate    = true ;
 	s.hasGUICreateOptions   = true ;
 	s.setsCipherPath        = false ;
+	s.acceptsSubType        = true ;
+	s.acceptsVolName        = true ;
 	s.releaseURL            = "https://api.github.com/repos/vgough/encfs/releases" ;
 	s.passwordFormat        = "%{password}\n%{password}" ;
 	s.reverseString         = "--reverse" ;
-	s.idleString            = "-i" ;
+	s.idleString            = "--idle" ;
 	s.executableName        = "encfs" ;
 	s.incorrectPasswordText = "Error decoding volume key, password incorrect" ;
 	s.configFileArgument    = "--config" ;
 	s.windowsInstallPathRegistryKey   = "SOFTWARE\\ENCFS" ;
 	s.windowsInstallPathRegistryValue = "InstallDir" ;
+	s.windowsUnMountCommand           = QStringList{ "taskkill","/F","/PID","%{PID}" } ;
 	s.volumePropertiesCommands        = QStringList{ "encfsctl %{cipherFolder}" } ;
 	s.configFileNames       = QStringList{ ".encfs6.xml","encfs6.xml",".encfs5",".encfs4" } ;
 	s.fuseNames             = QStringList{ "fuse.encfs" } ;
@@ -67,24 +71,28 @@ encfs::encfs() :
 }
 
 engines::engine::args encfs::command( const QByteArray& password,
-				      const engines::engine::cmdArgsList& args ) const
+				      const engines::engine::cmdArgsList& args,
+				      bool create ) const
 {
 	Q_UNUSED( password )
 
-	QString e = "%1 %2 %3 %4 %5" ;
-
-	engines::engine::commandOptions m( args,this->name(),this->name() ) ;
+	engines::engine::commandOptions m( *this,args ) ;
 
 	auto exeOptions = m.exeOptions() ;
 
-	if( args.create ){
+	if( create ){
 
-		exeOptions.add( args.opt.createOptions,"--stdinpass","--standard" ) ;
+		if( !args.createOptions.isEmpty() ){
+
+			exeOptions.add( utility::split( args.createOptions,' ' ) ) ;
+		}
+
+		exeOptions.add( "--stdinpass","--standard" ) ;
 	}else{
 		exeOptions.add( "--stdinpass" ) ;
 	}
 
-	if( args.opt.boolOptions.unlockInReverseMode ){
+	if( args.boolOptions.unlockInReverseMode ){
 
 		exeOptions.add( this->reverseString() ) ;
 	}
@@ -93,16 +101,14 @@ engines::engine::args encfs::command( const QByteArray& password,
 
 		exeOptions.add( "-f" ) ;
 
-		auto m = utility::removeFirstAndLast( args.mountPoint,1,1 ) ;
-
-		if( !utility::isDriveLetter( m ) ){
+		if( !utility::isDriveLetter( args.mountPoint ) ){
 
 			/*
 			 * A user is trying to use a folder as a mount path and cryfs
 			 * requires the mount path to not exist and we are deleting
 			 * it because SiriKali created it previously.
 			 */
-			utility::removeFolder( m,5 ) ;
+			utility::removeFolder( args.mountPoint,5 ) ;
 		}
 	}
 
@@ -112,32 +118,18 @@ engines::engine::args encfs::command( const QByteArray& password,
 
 		if( m_versionGreatorOrEqual_1_9_5 ){
 
-			exeOptions.add( args.configFilePath ) ;
+			exeOptions.add( this->configFileArgument() + "=" + args.configFilePath ) ;
 		}else{
-			/*
-			 * args.configFilePath will contain something
-			 * like --config "/foo/bar" and we only want
-			 * the /foo/bar part without quotation marks.
-			 */
-			auto a = utility::removeFirstAndLast( args.configFilePath,10,1 ) ;
+			auto& a = args.configFilePath ;
 
 			utility::debug() << "Encfs: Setting Env Variable Of: ENCFS6_CONFIG=" + a ;
 			m_environment.insert( "ENCFS6_CONFIG",a ) ;
 		}
 	}
 
-	if( !args.opt.idleTimeout.isEmpty() ){
+	exeOptions.add( args.cipherFolder,args.mountPoint,m.fuseOpts() ) ;
 
-		exeOptions.addPair( this->idleString(),args.opt.idleTimeout ) ;
-	}
-
-	auto cmd = e.arg( args.exe,
-			  exeOptions.get(),
-			  args.cipherFolder,
-			  args.mountPoint,
-			  m.fuseOpts().get() ) ;
-
-	return { args,m,cmd } ;
+	return { args,m,this->executableFullPath(),exeOptions.get() } ;
 }
 
 engines::engine::status encfs::errorCode( const QString& e,int s ) const

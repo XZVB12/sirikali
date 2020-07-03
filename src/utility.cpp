@@ -218,26 +218,33 @@ void utility::polkitFailedWarning( std::function< void() > e )
 	_failed_to_connect_to_zulupolkit = std::move( e ) ;
 }
 
-::Task::future< utility::Task >& utility::Task::run( const QString& exe,bool e )
+::Task::future< utility::Task >& utility::Task::run( const QString& exe,
+						     const QStringList& list,
+						     bool e )
 {
-	return utility::Task::run( exe,-1,e ) ;
+	return utility::Task::run( exe,list,-1,e ) ;
 }
 
-::Task::future< utility::Task >& utility::Task::run( const QString& exe,int s,bool e )
+::Task::future< utility::Task >& utility::Task::run( const QString& exe,
+						     const QStringList& list,
+						     int s,bool e )
 {
 	return ::Task::run( [ = ](){
 
 		const auto& env = utility::systemEnvironment() ;
 
-		return utility::Task( exe,s,env,QByteArray(),[](){},e ) ;
+		return utility::Task( exe,list,s,env,QByteArray(),[](){},e ) ;
 	} ) ;
 }
 
-void utility::Task::execute( const QString& exe,int waitTime,
+void utility::Task::execute( const QString& exe,
+			     const QStringList& list,
+			     int waitTime,
 			     const QProcessEnvironment& env,
 			     const QByteArray& password,
 			     std::function< void() > function,
-			     bool polkit )
+			     bool polkit,
+			     bool runs_in_background )
 {
 	if( polkit && utility::useSiriPolkit() ){
 
@@ -275,11 +282,12 @@ void utility::Task::execute( const QString& exe,int waitTime,
 
 		s.write( [ & ]()->QByteArray{
 
-			SirikaliJson json ;
+			SirikaliJson json( []( const QString& e ){ utility::debug() << e ; } ) ;
 
 			json[ "cookie" ]   = _cookie ;
 			json[ "password" ] = password ;
 			json[ "command" ]  = exe ;
+			json[ "args" ]     = list ;
 
 			return json.structure() ;
 		}() ) ;
@@ -288,33 +296,54 @@ void utility::Task::execute( const QString& exe,int waitTime,
 
 		s.waitForReadyRead() ;
 
-		try{
-			SirikaliJson json( s.readAll(),SirikaliJson::type::CONTENTS ) ;
+		SirikaliJson json( s.readAll(),
+				   SirikaliJson::type::CONTENTS,
+				   []( const QString& e ){ utility::debug() << e ; } ) ;
 
-			m_finished   = json.getBool( "finished" ) ;
-			m_exitCode   = json.getInterger( "exitCode" ) ;
-			m_exitStatus = json.getInterger( "exitStatus" ) ;
-			m_stdError   = json.getByteArray( "stdError" ) ;
-			m_stdOut     = json.getByteArray( "stdOut" ) ;
+		m_finished   = json.getBool( "finished" ) ;
+		m_exitCode   = json.getInterger( "exitCode" ) ;
+		m_exitStatus = json.getInterger( "exitStatus" ) ;
+		m_stdError   = json.getByteArray( "stdError" ) ;
+		m_stdOut     = json.getByteArray( "stdOut" ) ;
 
-			utility::logCommandOutPut( { m_stdOut,m_stdError,m_exitCode,m_exitStatus,m_finished },exe ) ;
-
-		}catch( ... ){
-
-			_report_error( "SiriKali: Failed To Parse Polkit Backend Output" ) ;
-		}
+		utility::logCommandOutPut( { m_stdOut,m_stdError,m_exitCode,m_exitStatus,m_finished },exe,list ) ;
 	}else{
-		auto& ss = ::Task::process::run( exe,{},waitTime,password,env,std::move( function ) ) ;
+		if( runs_in_background ){
 
-		auto s = utility::unwrap( ss ) ;
+			auto& ss = ::Task::process::run( exe,list,waitTime,password,env,std::move( function ) ) ;
 
-		m_finished   = s.finished() ;
-		m_exitCode   = s.exit_code() ;
-		m_exitStatus = s.exit_status() ;
-		m_stdOut     = s.std_out() ;
-		m_stdError   = s.std_error() ;
+			auto s = utility::unwrap( ss ) ;
 
-		utility::logCommandOutPut( s,exe ) ;
+			m_finished   = s.finished() ;
+			m_exitCode   = s.exit_code() ;
+			m_exitStatus = s.exit_status() ;
+			m_stdOut     = s.std_out() ;
+			m_stdError   = s.std_error() ;
+
+			utility::logCommandOutPut( s,exe,list ) ;
+		}else{
+			utility::debug() << "Starting detached process" ;
+
+			QProcess ee ;
+
+			ee.setProgram( exe ) ;
+
+			ee.setArguments( list ) ;
+
+			if( ee.startDetached() ){
+
+				m_exitCode = 0 ;
+			}else{
+				m_exitCode = 1 ;
+			}
+
+			m_finished   = true ;
+			m_exitStatus = 0 ;
+
+			::Task::process::result m{ m_stdError,m_stdOut,m_exitCode,m_exitStatus,m_finished } ;
+
+			utility::logCommandOutPut( m,exe,list ) ;
+		}
 	}
 }
 
@@ -399,7 +428,7 @@ void utility::logCommandOutPut( const QString& e )
 	_set_debug_window_text( "---------\n" + e + "\n---------\n" ) ;
 }
 
-void utility::logCommandOutPut( const ::Task::process::result& m,const QString& exe )
+void utility::logCommandOutPut( const ::Task::process::result& m,const QString& exe,const QStringList& args )
 {
 	if( exe.contains( "fscrypt status" ) ){
 
@@ -423,34 +452,43 @@ void utility::logCommandOutPut( const ::Task::process::result& m,const QString& 
 
 	QString s = "Exit Code: %1\nExit Status: %2\n-------\nStdOut: %3\n-------\nStdError: %4\n-------\nCommand: %5\n-------\n" ;
 
+	QString r ;
+
+	for( const auto& it : args ){
+
+		r += " \"" + it + "\"" ;
+	}
+
 	auto e = s.arg( QString::number( m.exit_code() ),
 			QString::number( m.exit_status() ),
 			_trim( m.std_out() ),
 			_trim( m.std_error() ),
-			exe ) ;
+			"\"" + exe + "\" " + r ) ;
 
 	_set_debug_window_text( e ) ;
 }
 
-static QString siriPolkitExe()
+
+static engines::engine::exe siriPolkitExe()
 {
 	auto exe = engines::executableFullPath( "pkexec" ) ;
 
 	if( exe.isEmpty() ){
 
-		return QString() ;
+		return {} ;
 	}else{
-		return QString( "%1 %2 %3 fork" ).arg( exe,siriPolkitPath,utility::helperSocketPath() ) ;
+		return { exe,{ siriPolkitPath,utility::helperSocketPath(),"fork" } } ;
 	}
 }
 
-static ::Task::future< utility::Task >& _start_siripolkit( const QString& e )
+static ::Task::future< utility::Task >& _start_siripolkit( const engines::engine::exe& e )
 {
 	_cookie = crypto::getRandomData( 16 ).toHex() ;
 
 	return ::Task::run( [ = ]{
 
-		return utility::Task( e,
+		return utility::Task( e.exe,
+				      e.args,
 				      -1,
 				      utility::systemEnvironment(),
 				      _cookie,
@@ -468,7 +506,7 @@ bool utility::enablePolkit()
 
 	auto exe = siriPolkitExe() ;
 
-	if( !exe.isEmpty() ){
+	if( !exe.exe.isEmpty() ){
 
 		auto socketPath = utility::helperSocketPath() ;
 
@@ -540,11 +578,12 @@ void utility::quitHelper()
 
 				s.write( [ & ]()->QByteArray{
 
-					SirikaliJson json ;
+					SirikaliJson json( []( const QString& e ){ utility::debug() << e ; } ) ;
 
 					json[ "cookie" ]   = _cookie ;
 					json[ "password" ] = "" ;
 					json[ "command" ]  = "exit" ;
+					json[ "args" ]     = QStringList() ;
 
 					return json.structure() ;
 				}() ) ;
@@ -565,9 +604,7 @@ void utility::quitHelper()
 {
 	return ::Task::run( [ = ](){
 
-		auto e = opener + " " + utility::Task::makePath( path ) ;
-
-		return utility::Task::run( e ).get().failed() ;
+		return utility::Task::run( opener,{ path } ).get().failed() ;
 	} ) ;
 }
 
@@ -660,88 +697,6 @@ bool utility::printVersionOrHelpInfo( const QStringList& e )
 	}else{
 		return false ;
 	}
-}
-
-QString utility::getKey( const QString& cipherPath,const secrets& secret )
-{
-	if( utility::runningOnBackGroundThread() ){
-
-		return QString() ;
-	}
-
-	auto& settings = settings::instance() ;
-
-	if( !settings.allowExternalToolsToReadPasswords() ){
-
-		return QString() ;
-	}
-
-	auto bk = settings.autoMountBackEnd() ;
-
-	if( bk.isInvalid() ){
-
-		return QString() ;
-	}
-
-	auto m = utility::getKey( cipherPath,secret.walletBk( bk.bk() ).bk() ) ;
-
-	return m.key ;
-}
-
-utility::wallet utility::getKey( const QString& keyID,LXQt::Wallet::Wallet& wallet,QWidget * widget )
-{
-	auto _getKey = []( LXQt::Wallet::Wallet& wallet,const QString& volumeID ){
-
-		return ::Task::await( [ & ](){ return wallet.readValue( volumeID ) ; } ) ;
-	} ;
-
-	utility::wallet w{ false,false,"" } ;
-
-	auto s = wallet.backEnd() ;
-	auto& wlt = settings::instance() ;
-
-	if( s == LXQt::Wallet::BackEnd::internal ){
-
-		auto walletName = wlt.walletName() ;
-		auto appName    = wlt.applicationName() ;
-
-		if( LXQt::Wallet::walletExists( s,walletName,appName ) ){
-
-			if( wallet.opened() ){
-
-				w.opened = true ;
-			}else{
-				wallet.setImage( QIcon( ":/sirikali" ) ) ;
-
-				if( widget ){
-
-					widget->hide() ;
-
-					w.opened = wallet.open( walletName,appName ) ;
-
-					widget->show() ;
-				}else{
-					w.opened = wallet.open( walletName,appName ) ;
-				}
-			}
-
-			if( w.opened ){
-
-				w.key = _getKey( wallet,keyID ) ;
-			}
-		}else{
-			w.notConfigured = true ;
-		}
-	}else{
-		w.opened = wallet.open( wlt.walletName( s ),wlt.applicationName() ) ;
-
-		if( w.opened ){
-
-			w.key = _getKey( wallet,keyID ) ;
-		}
-	}
-
-	return w ;
 }
 
 bool utility::eventFilter( QObject * gui,QObject * watched,QEvent * event,std::function< void() > function )
@@ -871,13 +826,18 @@ QStringList utility::directoryList( const QString& e )
 	return s ;
 }
 
-QIcon utility::getIcon()
+QIcon utility::getIcon( iconType type )
 {
 	if( utility::platformIsLinux() ){
 
 		QIcon icon( INSTALL_PREFIX "/share/icons/hicolor/48x48/apps/sirikali.png" ) ;
 
-		return QIcon::fromTheme( "sirikali",icon ) ;
+		if( type == utility::iconType::trayIcon ){
+
+			return QIcon::fromTheme( "sirikali-panel",icon ) ;
+		}else{
+			return QIcon::fromTheme( "sirikali",icon ) ;
+		}
 	}else{
 		return QIcon( ":sirikali" ) ;
 	}
@@ -934,7 +894,11 @@ static QStringList _split( const QString& e,const T& token )
 
 		return QStringList( QString() ) ;
 	}else{
-		return e.split( token,QString::SkipEmptyParts ) ;
+		#if QT_VERSION < QT_VERSION_CHECK( 5,15,0 )
+			return e.split( token,QString::SkipEmptyParts ) ;
+		#else
+			return e.split( token,Qt::SkipEmptyParts ) ;
+		#endif
 	}
 }
 
@@ -1396,17 +1360,17 @@ static bool _yubikey_remove_newline()
 	return m ;
 }
 
-utility::result< QByteArray > utility::yubiKey( const QByteArray& challenge )
+utility::qbytearray_result utility::yubiKey( const QByteArray& challenge )
 {
 	QString exe = _ykchalresp_path() ;
 
 	if( !exe.isEmpty() ){
 
-		exe = exe + " " + settings::instance().ykchalrespArguments() ;
+		auto args = utility::split( settings::instance().ykchalrespArguments(),' ' );
 
-		auto s = utility::unwrap( ::Task::process::run( exe,challenge ) ) ;
+		auto s = utility::unwrap( ::Task::process::run( exe,args,-1,challenge ) ) ;
 
-		utility::logCommandOutPut( s,exe ) ;
+		utility::logCommandOutPut( s,exe,args ) ;
 
 		if( s.success() ){
 

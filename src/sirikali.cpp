@@ -294,17 +294,15 @@ void sirikali::setUpApp( const QString& volume )
 
 	this->setUpFont() ;
 
-	const auto icon = utility::getIcon() ;
-
 	this->setAcceptDrops( true ) ;
-	this->setWindowIcon( icon ) ;
+	this->setWindowIcon( utility::getIcon( utility::iconType::general ) ) ;
 
 	this->setUpAppMenu() ;
 
 	this->setLocalizationLanguage( false ) ;
 
 	m_trayIcon.setParent( this ) ;
-	m_trayIcon.setIcon( icon ) ;
+	m_trayIcon.setIcon( utility::getIcon( utility::iconType::trayIcon ) ) ;
 
 	this->showTrayIcon() ;
 
@@ -318,24 +316,27 @@ void sirikali::setUpApp( const QString& volume )
 
 		this->enableAll() ;
 	}else{
-		this->showMoungDialog( volume ) ;
+		this->autoMount( volume ) ;
 	}
 
 	this->startGUI( m ) ;
 
-	QTimer::singleShot( settings::instance().checkForUpdateInterval(),this,SLOT( autoUpdateCheck() ) ) ;
+	if( utility::platformIsNOTWindows() ){
+
+		QTimer::singleShot( settings::instance().checkForUpdateInterval(),this,SLOT( autoUpdateCheck() ) ) ;
+	}
 
 	if( utility::debugEnabled() ){
 
 		this->showDebugWindow() ;
 	}
 
-	auto e = settings::instance().runCommandOnInterval() ;
-	auto p = settings::instance().runCommandOnIntervalTime() ;
+	auto& ss = settings::instance() ;
+
+	auto e = ss.runCommandOnInterval() ;
+	auto p = ss.runCommandOnIntervalTime() ;
 
 	if( !e.isEmpty() ){
-
-		e = utility::Task::makePath( e ) ;
 
 		auto s = new QTimer( this ) ;
 
@@ -512,23 +513,44 @@ void sirikali::favoriteClicked( QAction * ac )
 
 		this->disableAll() ;
 
-		favorites2::instance( this,m_secrets,favorites::type::others,[ this ](){
+		favorites2::instance( this,m_secrets,[ this ](){
 
 			this->enableAll() ;
 
 			this->updateFavoritesInContextMenu() ;
 		} ) ;
-	}else{
+	}else{		
 		if( e == "Mount All" ){
 
-			this->mountMultipleVolumes( _readFavorites() ) ;
+			auto v = _readFavorites() ;
+
+			auto e = settings::instance().autoMountBackEnd() ;
+
+			if( e.isValid() ){
+
+				auto m = m_secrets.walletBk( e.bk() ) ;
+
+				m.open( [ & ](){
+
+					for( auto& it : v ){
+
+						auto s = m->readValue( it.first.volumePath ) ;
+
+						if( !s.isEmpty() ){
+
+							it.second = s ;
+						}
+					}
+
+					return true ;
+				} ) ;
+			}
+
+			this->mountMultipleVolumes( std::move( v ) ) ;
 		}else{
-			QString volumePath ;
-			QString mountPointPath ;
-
-			utility2::stringListToStrings( utility::split( e ),volumePath,mountPointPath ) ;
-
-			auto _found = [ & ]( const std::pair< favorites::entry,QByteArray >& e ){
+			auto _found = [ & ]( const std::pair< favorites::entry,QByteArray >& e,
+					     const QString& mountPointPath,
+					     const QString& volumePath ){
 
 				const auto& s = e.first ;
 
@@ -540,9 +562,14 @@ void sirikali::favoriteClicked( QAction * ac )
 				}
 			} ;
 
+			QString volumePath ;
+			QString mountPointPath ;
+
+			utility2::stringListToStrings( utility::split( e ),volumePath,mountPointPath ) ;
+
 			for( auto&& it : _readFavorites() ){
 
-				if( _found( it ) ){
+				if( _found( it,mountPointPath,volumePath ) ){
 
 					this->mountMultipleVolumes( this->autoUnlockVolumes( { std::move( it ) },true ) ) ;
 					break ;
@@ -590,20 +617,16 @@ void sirikali::raiseWindow( const QString& volume )
 	this->raise() ;
 	this->show() ;
 	this->setWindowState( Qt::WindowActive ) ;
-	this->showMoungDialog( volume ) ;
+	this->autoMount( volume ) ;
 }
 
 int sirikali::start( QApplication& e )
 {
 	if( utility::platformIsWindows() ){
 
-		if( m_argumentList.size() > 1 && m_argumentList.at( 1 ).startsWith( "-T" ) ){
+		if( m_argumentList.size() > 2 && m_argumentList.at( 1 ) == "-T" ){
 
-			auto s = m_argumentList.at( 1 ) ;
-
-			s.replace( "-T","" ) ;
-
-			return SiriKali::Windows::terminateProcess( s.toULong() ) ;
+			return SiriKali::Windows::terminateProcess( m_argumentList.at( 2 ).toULong() ) ;
 		}
 	}
 
@@ -824,39 +847,35 @@ void sirikali::unlockVolume( const QStringList& l )
 
 		auto w = [ & ](){
 
-			namespace wxt = LXQt::Wallet ;
+			using wxt = LXQt::Wallet::BackEnd ;
 
-			auto _supported = [ & ]( wxt::BackEnd e,const char * s ){
+			auto _supported = [ & ]( wxt e,const char * s ){
 
-				return backEnd == s && wxt::backEndIsSupported( e ) ;
+				return backEnd == s && LXQt::Wallet::backEndIsSupported( e ) ;
 			} ;
 
-			if( _supported( wxt::BackEnd::internal,"internal" ) ){
+			if( _supported( wxt::internal,"internal" ) ){
 
-				auto s = m_secrets.walletBk( wxt::BackEnd::internal ) ;
+				return m_secrets.walletBk( wxt::internal ).getKey( volume ) ;
 
-				return utility::getKey( volume,s.bk() ) ;
+			}else if( _supported( wxt::libsecret,"gnomewallet" ) ||
+				  _supported( wxt::libsecret,"libsecret" ) ){
 
-			}else if( _supported( wxt::BackEnd::libsecret,"gnomewallet" ) ||
-				  _supported( wxt::BackEnd::libsecret,"libsecret" ) ){
+				return m_secrets.walletBk( wxt::libsecret ).getKey( volume ) ;
 
-				auto s = m_secrets.walletBk( wxt::BackEnd::libsecret ) ;
+			}else if( _supported( wxt::kwallet,"kwallet" ) ){
 
-				return utility::getKey( volume,s.bk() ) ;
+				return m_secrets.walletBk( wxt::kwallet ).getKey( volume ) ;
 
-			}else if( _supported( wxt::BackEnd::kwallet,"kwallet" ) ){
+			}else if( _supported( wxt::osxkeychain,"osxkeychain" ) ){
 
-				auto s = m_secrets.walletBk( wxt::BackEnd::kwallet ) ;
+				return m_secrets.walletBk( wxt::osxkeychain ).getKey( volume ) ;
 
-				return utility::getKey( volume,s.bk() ) ;
+			}else if( _supported( wxt::windows_dpapi,"windows_dpapi" ) ){
 
-			}else if( _supported( wxt::BackEnd::osxkeychain,"osxkeychain" ) ){
-
-				auto s = m_secrets.walletBk( wxt::BackEnd::osxkeychain ) ;
-
-				return utility::getKey( volume,s.bk() ) ;
+				return m_secrets.walletBk( LXQt::Wallet::BackEnd::windows_dpapi ).getKey( volume ) ;
 			}else{
-				return utility::wallet{ false,true,"" } ;
+				return secrets::wallet::walletKey{ false,true,"" } ;
 			}
 		}() ;
 
@@ -947,90 +966,75 @@ favorites::volumeList sirikali::autoUnlockVolumes( favorites::volumeList l,bool 
 		return l ;
 	}
 
-	auto e = settings::instance().autoMountBackEnd() ;
+	auto ee = settings::instance().autoMountBackEnd() ;
 
-	if( e.isInvalid() ){
+	if( ee.isInvalid() ){
 
 		return l ;
 	}
 
-	auto m = m_secrets.walletBk( e.bk() ) ;
+	auto m = m_secrets.walletBk( ee.bk() ) ;
 
 	if( !m ){
 
 		return l ;
 	}
 
-	auto _mountVolumes = [ & ](){
+	if( !m.open() ){
 
-		favorites::volumeList e ;
+		return l ;
+	}
 
-		auto _mount = [ & ]( favorites::volumeList& q,
-				     const std::pair< favorites::entry,QByteArray >& e,
-				     const QByteArray& key,
-				     bool s ){
-			if( s ){
+	favorites::volumeList e ;
 
-				q.emplace_back( e.first,key ) ;
-			}else{
-				this->disableAll() ;
+	auto _mount = [ & ]( favorites::volumeList& q,
+			     const std::pair< favorites::entry,QByteArray >& e,
+			     const QByteArray& key,
+			     bool s ){
+		if( s ){
 
-				auto s = siritask::encryptedFolderMount( { e.first,key } ) ;
+			q.emplace_back( e.first,key ) ;
+		}else{
+			this->disableAll() ;
 
-				if( s == engines::engine::status::success ){
+			auto s = siritask::encryptedFolderMount( { e.first,key } ) ;
 
-					if( autoOpenFolderOnMount ){
+			if( s == engines::engine::status::success ){
 
-						this->openMountPointPath( e.first.mountPointPath ) ;
-					}
+				if( autoOpenFolderOnMount ){
 
-					if( !s.engine().autorefreshOnMountUnMount() ){
-
-						this->updateList() ;
-					}
-				}else{
-					q.emplace_back( e.first,key ) ;
-
-					utility::debug() << "Automounting has failed because: " + s.toString() ;
+					this->openMountPointPath( e.first.mountPointPath ) ;
 				}
 
-				this->enableAll() ;
-			}
-		} ;
+				if( !s.engine().autorefreshOnMountUnMount() ){
 
-		auto s = settings::instance().showMountDialogWhenAutoMounting() ;
-
-		for( const auto& it : l ){
-
-			const auto key = m->readValue( it.first.volumePath ) ;
-
-			if( key.isEmpty() ){
-
-				e.emplace_back( it ) ;
+					this->updateList() ;
+				}
 			}else{
-				_mount( e,it,key,s ) ;
-			}
-		}
+				q.emplace_back( e.first,key ) ;
 
-		return e ;
+				utility::debug() << "Automounting has failed because: " + s.toString() ;
+			}
+
+			this->enableAll() ;
+		}
 	} ;
 
+	auto s = settings::instance().showMountDialogWhenAutoMounting() ;
 
-	if( m->opened() ){
+	for( const auto& it : l ){
 
-		return _mountVolumes() ;
-	}else{
-		m->setImage( QIcon( ":/sirikali" ) ) ;
+		const auto key = m->readValue( it.first.volumePath ) ;
 
-		auto& s = settings::instance() ;
+		if( key.isEmpty() ){
 
-		if( m->open( s.walletName( m->backEnd() ),s.applicationName() ) ){
-
-			return _mountVolumes() ;
+			e.emplace_back( it ) ;
 		}else{
-			return l ;
+			_mount( e,it,key,s ) ;
 		}
 	}
+
+	return e ;
 }
 
 void sirikali::volumeProperties()
@@ -1165,15 +1169,22 @@ void sirikali::addToFavorites()
 {
 	auto table = m_ui->tableWidget ;
 
-	auto cp = tablewidget::rowEntries( table,table->currentRow() ) ;
+	int s = table->currentRow() ;
+
+	if( s == -1 ){
+
+		return ;
+	}
+
+	auto cp = tablewidget::rowEntries( table,s ) ;
 
 	if( cp.size() > 0 ){
 
-		favorites2::instance( this,m_secrets,favorites::type::others,[ this ](){
+		favorites2::instance( this,m_secrets,[ this ](){
 
 			this->updateFavoritesInContextMenu() ;
 
-		},cp.first() ) ;
+		},cp.at( 2 ),cp.at( 0 ) ) ;
 	}
 }
 
@@ -1331,21 +1342,22 @@ void sirikali::dragEnterEvent( QDragEnterEvent * e )
 	e->accept() ;
 }
 
-void sirikali::dropEvent( QDropEvent * e )
+template< typename Function >
+static favorites::volumeList _dropEvent( QDropEvent * e,Function function )
 {
 	favorites::volumeList s ;
 
-	auto _favorite_entry = [ & ]( const QString& path )->favorites::entry{
+	auto _favorite_entry = [ & ]( const QString& path )->std::pair< favorites::entry,QByteArray >{
 
 		for( const auto& it : _readFavorites() ){
 
 			if( it.first.volumePath == path ){
 
-				return it.first ;
+				return { it.first,function( path ) } ;
 			}
 		}
 
-		return path ;
+		return { path,function( path ) } ;
 	} ;
 
 	QFileInfo fileInfo ;
@@ -1373,7 +1385,7 @@ void sirikali::dropEvent( QDropEvent * e )
 
 		if( fileInfo.isDir() ){
 
-			s.emplace_back( _favorite_entry( m ),QByteArray() ) ;
+			s.emplace_back( _favorite_entry( m ) ) ;
 
 		}else if( fileInfo.isFile() ){
 
@@ -1391,22 +1403,34 @@ void sirikali::dropEvent( QDropEvent * e )
 		}
 	}
 
-	this->mountMultipleVolumes( std::move( s ) ) ;
+	return s ;
 }
 
-void sirikali::mount( const volumeInfo& entry,const QString& exe,const QByteArray& key )
+void sirikali::dropEvent( QDropEvent * e )
 {
-	this->disableAll() ;
+	auto m = settings::instance().autoMountBackEnd() ;
 
-	keyDialog::instance( this,
-			     m_secrets,
-			     entry,
-			     [ this ](){ this->enableAll() ; },
-			     [ this ](){ this->updateList() ; },
-			     m_autoOpenFolderOnMount,
-			     m_folderOpener,
-			     exe,
-			     key ) ;
+	if( m.isValid() ){
+
+		auto wallet = m_secrets.walletBk( m.bk() ) ;
+
+		if( wallet.open() ){
+
+			this->mountMultipleVolumes( _dropEvent( e,[ & ]( const QString& e ){
+
+				return wallet->readValue( e ) ;
+			} ) ) ;
+
+			return ;
+		}
+	}
+
+	this->mountMultipleVolumes( _dropEvent( e,[]( const QString& e ){
+
+		Q_UNUSED( e )
+
+		return QByteArray() ;
+	} ) ) ;
 }
 
 void sirikali::createVolume( QAction * ac )
@@ -1417,46 +1441,29 @@ void sirikali::createVolume( QAction * ac )
 
 		if( s == "Sshfs" ){
 
-			favorites2::instance( this,m_secrets,favorites::type::sshfs,[ this ](){
+			favorites2::instance( this,m_secrets,[ this ](){
 
 				this->updateFavoritesInContextMenu() ;
-			} ) ;
+
+			},s ) ;
 		}else{
-			this->mount( volumeInfo(),s ) ;
+			keyDialog::instance( this,
+					     m_secrets,
+					     volumeInfo(),
+					     [ this ](){ this->enableAll() ; },
+					     [ this ](){ this->updateList() ; },
+					     m_autoOpenFolderOnMount,
+					     m_folderOpener,
+					     s ) ;
 		}
 	}
 }
 
-void sirikali::slotMount()
-{
-	auto table = m_ui->tableWidget ;
-
-	if( table->rowCount() > 0 ){
-
-		auto row = table->currentRow() ;
-
-		this->mount( tablewidget::rowEntries( table,row ) ) ;
-	}
-}
-
-void sirikali::showMoungDialog( const volumeInfo& v )
-{
-	if( v.isNotValid() ){
-
-		DialogMsg( this ).ShowUIOK( tr( "ERROR" ),
-					    tr( "Permission To Access The Volume Was Denied\nOr\nThe Volume Is Not Supported" ) ) ;
-
-		this->enableAll() ;
-	}else{
-		this->mount( v ) ;
-	}
-}
-
-void sirikali::showMoungDialog( const QString& volume,const QString& m_point )
+void sirikali::autoMount( const QString& volume )
 {
 	if( !volume.isEmpty() ){
 
-		this->mount( { { volume,m_point } } ) ;
+		this->mountMultipleVolumes( { { volume,{} } } ) ;
 	}
 }
 
@@ -1479,7 +1486,7 @@ void sirikali::unlockVolume( bool dir )
 
 		this->enableAll() ;
 	}else{
-		this->showMoungDialog( path ) ;
+		this->autoMount( path ) ;
 	}
 }
 
@@ -1629,35 +1636,43 @@ void sirikali::updateFavoritesInContextMenu()
 
 void sirikali::runIntervalCustomCommand( const QString& cmd )
 {
-	this->processMountedVolumes( [ = ]( const sirikali::mountedEntry& s ){
+	this->processMountedVolumes( [ = ]( const sirikali::mountedEntry& s ){		
 
-		auto a = utility::Task::makePath( s.cipherPath ) ;
-		auto b = utility::Task::makePath( s.mountPoint ) ;
-		auto c = s.volumeType ;
+		QStringList args{ s.cipherPath,s.mountPoint,s.volumeType } ;
 
-		auto key = utility::getKey( s.cipherPath,m_secrets ) ;
+		QString key ;
+
+		auto& settings = settings::instance() ;
+
+		if( settings.allowExternalToolsToReadPasswords() ){
+
+			auto bk = settings.autoMountBackEnd() ;
+
+			if( bk.isValid() ){
+
+				key = m_secrets.walletBk( bk.bk() ).getKey( s.cipherPath ).key ;
+			}
+		}
 
 		Task::exec( [ = ](){
 
 			const auto& e = utility::systemEnvironment() ;
 
-			auto m = QString( "%1 %2 %3 %4" ).arg( cmd,a,b,c ) ;
-
 			auto r = [ & ](){
 
 				if( key.isEmpty() ){
 
-					return Task::process::run( m,{},-1,{},e ).get() ;
+					return Task::process::run( cmd,args,-1,{},e ).get() ;
 				}else{
 					auto s = e ;
 
 					s.insert( settings::instance().environmentalVariableVolumeKey(),key ) ;
 
-					return Task::process::run( m,{},-1,{},s ).get() ;
+					return Task::process::run( cmd,args,-1,{},s ).get() ;
 				}
 			}() ;
 
-			utility::logCommandOutPut( r,m ) ;
+			utility::logCommandOutPut( r,cmd,args ) ;
 		} ) ;
 	} ) ;
 }

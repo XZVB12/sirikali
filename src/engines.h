@@ -123,8 +123,8 @@ public:
 		version()
 		{
 		}
-		utility::result< bool > compare( const engines::engineVersion& b,
-						 engines::version::Operator op ) const
+		utility::bool_result compare( const engines::engineVersion& b,
+					      engines::version::Operator op ) const
 		{
 			const auto& a = this->get() ;
 
@@ -147,11 +147,11 @@ public:
 		{
 			return this->get().toString() ;
 		}
-		utility::result< bool > greaterOrEqual( int major,int minor,int patch ) const
+		utility::bool_result greaterOrEqual( int major,int minor,int patch ) const
 		{
 			return this->compare( { major,minor,patch },engines::version::Operator::greaterOrEqual ) ;
 		}
-		utility::result< bool > greaterOrEqual( const QString& v ) const
+		utility::bool_result greaterOrEqual( const QString& v ) const
 		{
 		        return this->compare( v,engines::version::Operator::greaterOrEqual ) ;
 		}
@@ -160,9 +160,9 @@ public:
 		QString m_engineName ;
 	};
 
-	class booleanCache : public cache< utility::result< bool > >{
+	class booleanCache : public cache< utility::bool_result >{
 	public:
-	        booleanCache( std::function< utility::result< bool >() > s ) :
+		booleanCache( std::function< utility::bool_result() > s ) :
 		        cache( std::move( s ) )
 		{
 		}
@@ -174,7 +174,7 @@ public:
 		virtual void silenceWarning() ;
 	};
 
-	class versionGreaterOrEqual : public cache< utility::result< bool > >{
+	class versionGreaterOrEqual : public cache< utility::bool_result >{
 	public:
 	        versionGreaterOrEqual( bool m,const engines::engine& engine,int major,int minor,int patch ) :
 		        cache( [ =,&engine ](){ return this->setCallback( m,engine,major,minor,patch ) ; } )
@@ -208,6 +208,20 @@ public:
 	protected:
 		class commandOptions ;
 	public:
+		struct unMount{
+
+			const QString& cipherFolder ;
+			const QString& mountPoint ;
+			const QString& fileSystem ;
+			int numberOfAttempts ;
+		} ;
+
+		struct exe{
+
+			QString exe ;
+			QStringList args ;
+		};
+
 		class Wrapper{
 		public:
 			Wrapper( const engines::engine& e ) :
@@ -410,38 +424,28 @@ public:
 
 		struct cmdArgsList
 		{
-			struct options
-			{
-				options( const favorites::entry& e,
-					 const QByteArray& volumeKey = QByteArray() ) ;
+			cmdArgsList( const favorites::entry& e,
+				     const QByteArray& volumeKey = QByteArray() ) ;
 
-				options( const QString& cipher_folder,
-					 const QString& plain_folder,
-					 const QByteArray& volume_key,
-					 const engines::engine::createGUIOptions::createOptions& ) ;
+			cmdArgsList( const QString& cipher_folder,
+				     const QString& plain_folder,
+				     const QByteArray& volume_key,
+				     const engines::engine::createGUIOptions::createOptions& ) ;
 
-				options( const QString& cipher_folder,
-					 const QString& plain_folder,
-					 const QByteArray& volume_key,
-					 const engines::engine::mountGUIOptions::mountOptions& ) ;
+			cmdArgsList( const QString& cipher_folder,
+				     const QString& plain_folder,
+				     const QByteArray& volume_key,
+				     const engines::engine::mountGUIOptions::mountOptions& ) ;
 
-				QString cipherFolder ;
-				QString plainFolder ;
-				QByteArray key ;
-				QString idleTimeout ;
-				QString configFilePath ;
-				QString mountOptions ;
-				QString createOptions ;
-				QString keyFile ;
-				booleanOptions boolOptions ;
-			} ;
-
-			const QString& exe ;
-			const engines::engine::cmdArgsList::options& opt ;
-			const QString& configFilePath ;
-			const QString& cipherFolder ;
-			const QString& mountPoint ;
-			const bool create ;
+			QString cipherFolder ;
+			QString mountPoint ;
+			QByteArray key ;
+			QString idleTimeout ;
+			QString configFilePath ;
+			QString mountOptions ;
+			QString createOptions ;
+			QString keyFile ;
+			booleanOptions boolOptions ;
 		} ;
 
 		struct BaseOptions
@@ -454,7 +458,7 @@ public:
 				int argumentLine ;
 			};
 
-			std::vector< vInfo >versionInfo ;
+			std::vector< vInfo > versionInfo ;
 			int  backendTimeout ;
 			bool hasConfigFile ;
 			bool setsCipherPath ;
@@ -467,6 +471,9 @@ public:
 			bool autorefreshOnMountUnMount ;
 			bool backendRequireMountPath ;
 			bool takesTooLongToUnlock ;
+			bool backendRunsInBackGround ;
+			bool acceptsSubType ;
+			bool acceptsVolName ;
 
 			QByteArray passwordFormat ;
 			QString releaseURL ;
@@ -477,10 +484,11 @@ public:
 			QString incorrectPasswordText ;
 			QString incorrectPassWordCode ;
 			QString configFileArgument ;
-			QString unMountCommand ;
-			QString windowsUnMountCommand ;
 			QString windowsInstallPathRegistryKey ;
 			QString windowsInstallPathRegistryValue ;
+
+			QStringList windowsUnMountCommand ;
+			QStringList unMountCommand ;
 			QStringList volumePropertiesCommands ;
 			QStringList successfulMountedList ;
 			QStringList failedToMountList ;
@@ -495,15 +503,17 @@ public:
 		struct args
 		{
 			args() ;
-			args( const cmdArgsList&,const engines::engine::commandOptions&,
-			      const QString& cmd = QString() ) ;
+			args( const cmdArgsList&,
+			      const engines::engine::commandOptions&,
+			      const QString& cmd,
+			      const QStringList& ) ;
 			QString cmd ;
 			QString cipherPath ;
 			QString mountPath ;
-			QString fuseOptions ;
-			QString exeOptions ;
 			QString mode ;
 			QString subtype ;
+			QStringList cmd_args ;
+			QStringList fuseOptions ;
 		} ;
 
 		static void encodeSpecialCharacters( QString& ) ;
@@ -523,15 +533,21 @@ public:
 		bool customBackend() const ;
 		bool autorefreshOnMountUnMount() const ;
 		bool backendRequireMountPath() const ;
+		bool backendRunsInBackGround() const ;
+		bool acceptsSubType() const ;
+		bool acceptsVolName() const ;
 
 		engines::engine::status notFoundCode() const ;
 
 		int backendTimeout() const ;
+
 		const QStringList& names() const ;
 		const QStringList& fuseNames() const ;
 		const QStringList& configFileNames() const ;
 		const QStringList& fileExtensions() const ;
 		const QStringList& volumePropertiesCommands() const ;
+		const QStringList& unMountCommand() const ;
+		const QStringList& windowsUnMountCommand() const ;
 
 		const engines::version& installedVersion() const ;
 
@@ -545,36 +561,32 @@ public:
 		const QString& configFileName() const ;
 		const QString& incorrectPasswordText() const ;
 		const QString& incorrectPasswordCode() const ;
-		const QString& unMountCommand() const ;
-		const QString& windowsUnMountCommand() const ;
+		const QString& configFileArgument() const ;
 		const QString& windowsInstallPathRegistryKey() const ;
 		const QString& windowsInstallPathRegistryValue() const ;
 
 		engine::engine::error errorCode( const QString& ) const ;
 
-		QString setConfigFilePath( const QString& ) const ;
 		QByteArray setPassword( const QByteArray& ) const ;
 
 		engine( BaseOptions ) ;
 
 		virtual ~engine() ;
 
-		virtual void updateVolumeList( const engines::engine::cmdArgsList::options& ) const ;
+		virtual void updateVolumeList( const engines::engine::cmdArgsList& ) const ;
 
 		virtual QStringList mountInfo( const QStringList& ) const ;
 
 		virtual Task::future< QString >& volumeProperties( const QString& cipherFolder,
 								   const QString& mountPoint ) const ;
 
-		virtual engines::engine::status unmount( const QString& cipherFolder,
-							 const QString& mountPoint,
-							 int maxCount ) const ;
+		virtual engines::engine::status unmount( const engines::engine::unMount& ) const ;
 
-		virtual bool requiresAPassword( const engines::engine::cmdArgsList::options& ) const ;
+		virtual bool requiresAPassword( const engines::engine::cmdArgsList& ) const ;
 
 		virtual bool takesTooLongToUnlock() const ;
 
-		virtual engine::engine::status passAllRequirenments( const engines::engine::cmdArgsList::options& ) const ;
+		virtual engine::engine::status passAllRequirenments( const engines::engine::cmdArgsList& ) const ;
 
 		struct ownsCipherFolder{
 			bool yes ;
@@ -585,58 +597,42 @@ public:
 		virtual ownsCipherFolder ownsCipherPath( const QString& cipherPath,
 		                                         const QString& configPath ) const ;
 
-		virtual void updateOptions( engines::engine::cmdArgsList::options&,bool ) const ;
+		virtual void updateOptions( engines::engine::cmdArgsList&,bool ) const ;
 
 		virtual const QProcessEnvironment& getProcessEnvironment() const ;
 		virtual bool requiresPolkit() const ;		
 		virtual args command( const QByteArray& password,
-				      const engines::engine::cmdArgsList& args ) const ;
+				      const engines::engine::cmdArgsList& args,
+				      bool create ) const ;
 		virtual engines::engine::status errorCode( const QString& e,int s ) const ;
 
 		virtual void GUICreateOptions( const createGUIOptions& ) const ;
 
 		virtual void GUIMountOptions( const mountGUIOptions& ) const ;
 	protected:
+		bool unmountVolume( const engine::engine::exe& exe,bool usePolkit ) const ;
+
 		class commandOptions{
 		public:
-			enum class separator{ space,equal_sign } ;
+			class fuseOptions ;
 
 			class Options{
 			public:
-				Options( QString& m,QString s ) :
-					m_options( m ),m_separator( std::move( s ) )
+				Options( QStringList& m ) : m_options( m )
 				{
-				}
-				bool doesNotContain( const QString& key ) const
-				{
-					return !this->contains( key ) ;
-				}
-				bool contains( const QString& key ) const
-				{
-					return m_options.contains( key ) ;
-				}
-				void addPair( const QString& key,const QString& value,separator s )
-				{
-					if( s == separator::space ){
-
-						this->add( key + " " + value ) ;
-					}else{
-						this->add( key + "=" + value ) ;
-					}
 				}
 				template< typename E >
 				void add( E&& e )
 				{
-					while( m_options.endsWith( "\n" ) ){
-
-						m_options = utility::removeLast( m_options,1 ) ;
-					}
-					if( m_options.isEmpty() ){
-
-						m_options = std::forward< E >( e ) ;
-					}else{
-						m_options += m_separator + std::forward< E >( e ) ;
-					}
+					m_options.append( e ) ;
+				}
+				void add( fuseOptions&& e )
+				{
+					_add( e ) ;
+				}
+				void add( fuseOptions& e )
+				{
+					_add( e ) ;
 				}
 				template< typename E,typename ... T >
 				void add( E&& e,T&& ... m )
@@ -644,71 +640,74 @@ public:
 					this->add( std::forward< E >( e ) ) ;
 					this->add( std::forward< T >( m ) ... ) ;
 				}
-				const QString& get() const
+				template< typename E >
+				void addFront( E&& e )
+				{
+					m_options.insert( 0,std::forward< E >( e ) ) ;
+				}
+				bool doesNotContain( const QString& key ) const
+				{
+					return !this->contains( key ) ;
+				}
+				bool contains( const QString& key ) const
+				{
+					for( const auto& it : m_options ){
+
+						if( it.contains( key,Qt::CaseInsensitive ) ){
+
+							return true ;
+						}
+					}
+
+					return false ;
+				}			
+				const QStringList& get() const
 				{
 					return m_options ;
 				}
 				QString extractStartsWith( const QString& e )
 				{
-					auto tmp = m_options ;
-					m_options.clear() ;
+					for( int i = 0 ; i < m_options.size() ; i++ ){
 
-					QString m ;
+						if( m_options[ i ].startsWith( e ) ){
 
-					auto s = m_separator[ 0 ].toLatin1() ;
-
-					for( const auto& it : utility::split( tmp,s ) ){
-
-						if( it.startsWith( e ) ){
-
-							m = it ;
-						}else{
-							this->add( it ) ;
+							return m_options.takeAt( i ) ;
 						}
 					}
 
-					return m ;
+					return {} ;
 				}
 			private:
-				QString& m_options ;
-				QString m_separator ;
+				void _add( const fuseOptions& s ) ;
+
+				QStringList& m_options ;
 			};
 
 			class fuseOptions : public Options
 			{
 			public:
-				fuseOptions( QString& m ) : Options( m,"," )
+				fuseOptions( QStringList& m ) : Options( m )
 				{
-				}
-				void addPair( const QString& key,const QString& value,
-					      separator s = separator::equal_sign )
-				{
-					Options::addPair( key,value,s ) ;
-				}
+				}				
 			} ;
 
 			class exeOptions : public Options
 			{
 			public:
-				exeOptions( QString& m ) : Options( m," " )
+				exeOptions( QStringList& m ) : Options( m )
 				{
-				}
-				void addPair( const QString& key,const QString& value,
-					      separator s = separator::space )
-				{
-					Options::addPair( key,value,s ) ;
 				}
 			} ;
 
-			commandOptions( const engines::engine::cmdArgsList& e,
-					const QString& f,
-					const QString& g = QString() ) ;
+			commandOptions() ;
+			commandOptions( const engines::engine& engine,
+			                const engines::engine::cmdArgsList& e ) ;
 
-			const QString& constExeOptions() const
+			const QStringList& constExeOptions() const
 			{
 				return m_exeOptions ;
 			}
-			const QString& constFuseOpts() const
+			const QStringList& constFuseOpts() const
 			{
 				return m_fuseOptions ;
 			}
@@ -729,8 +728,8 @@ public:
 				return m_fuseOptions ;
 			}
 		private:
-			QString m_exeOptions ;
-			QString m_fuseOptions ;
+			QStringList m_exeOptions ;
+			QStringList m_fuseOptions ;
 			QString m_subtype ;
 			QString m_mode ;
 		};
@@ -754,7 +753,7 @@ public:
 	        engineWithPaths() ;
 		engineWithPaths( const QString& engine ) ;
 		engineWithPaths( const QString& cipherPath,const QString& configFilePath ) ;
-		engineWithPaths( const engines::engine&,const engines::engine::ownsCipherFolder& ) ;
+		engineWithPaths( const engines::engine&,engines::engine::ownsCipherFolder ) ;
 		engineWithPaths( const engines::engine& e,
 		                 const QString& cipherPath,
 		                 const QString& configFilePath ) ;

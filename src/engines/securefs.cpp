@@ -32,6 +32,7 @@ static engines::engine::BaseOptions _setOptions()
 	s.supportsMountPathsOnWindows = false ;
 	s.autorefreshOnMountUnMount   = true ;
 	s.backendRequireMountPath     = true ;
+	s.backendRunsInBackGround     = true ;
 	s.requiresPolkit        = false ;
 	s.customBackend         = false ;
 	s.requiresAPassword     = true ;
@@ -39,13 +40,15 @@ static engines::engine::BaseOptions _setOptions()
 	s.autoMountsOnCreate    = false ;
 	s.hasGUICreateOptions   = true ;
 	s.setsCipherPath        = false ;
+	s.acceptsSubType        = true ;
+	s.acceptsVolName        = true ;
 	s.releaseURL            = "https://api.github.com/repos/netheril96/securefs/releases" ;
 	s.passwordFormat        = "%{password}\n%{password}" ;
 	s.executableName        = "securefs" ;
 	s.incorrectPasswordText = "Invalid password" ;
 	s.configFileArgument    = "--config" ;
 	s.volumePropertiesCommands = QStringList{ "securefs info %{cipherFolder}" } ;
-	s.windowsUnMountCommand = "sirikali.exe -T" ;
+	s.windowsUnMountCommand = QStringList{ "sirikali.exe", "-T","%{PID}" } ;
 	s.configFileNames       = QStringList{ ".securefs.json","securefs.json" } ;
 	s.fuseNames             = QStringList{ "fuse.securefs" } ;
 	s.names                 = QStringList{ "securefs" } ;
@@ -64,44 +67,50 @@ securefs::securefs() :
 }
 
 engines::engine::args securefs::command( const QByteArray& password,
-					 const engines::engine::cmdArgsList& args ) const
+					 const engines::engine::cmdArgsList& args,
+					 bool create ) const
 {
 	Q_UNUSED( password )
 
-	engines::engine::commandOptions m( args,this->name(),this->name() ) ;
+	engines::engine::commandOptions m( *this,args ) ;
 
-	if( args.create ){
+	if( create ){
 
 		auto exeOptions  = m.exeOptions() ;
 
-		exeOptions.add( args.opt.createOptions ) ;
+		exeOptions.add( "create" ) ;
+
+		if( !args.createOptions.isEmpty() ){
+
+			exeOptions.add( utility::split( args.createOptions,' ' ) ) ;
+		}
 
 		if( m_version_greater_or_equal_0_11_1 ){
 
-			if( !args.opt.keyFile.isEmpty() ){
+			if( !args.keyFile.isEmpty() ){
 
-				exeOptions.addPair( "--keyfile",utility::Task::makePath( args.opt.keyFile ) ) ;
+				exeOptions.add( "--keyfile",args.keyFile ) ;
 
-				if( !args.opt.key.isEmpty() ){
+				if( !args.key.isEmpty() ){
 
 					exeOptions.add( "--askpass" ) ;
 				}
 			}
 		}
 
-		QString e = "%1 create %2 %3 %4" ;
+		if( !args.configFilePath.isEmpty() ){
 
-		auto cmd = e.arg( args.exe,
-				  exeOptions.get(),
-				  args.configFilePath,
-				  args.cipherFolder ) ;
+			exeOptions.add( this->configFileArgument(),args.configFilePath ) ;
+		}
 
-		return { args,m,cmd } ;
+		exeOptions.add( args.cipherFolder ) ;
+
+		return { args,m,this->executableFullPath(),exeOptions.get() } ;
 	}else{
-		QString exe = "%1 mount %2 %3 %4 %5" ;
-
 		auto exeOptions  = m.exeOptions() ;
 		auto fuseOptions = m.fuseOpts() ;
+
+		exeOptions.add( "mount" ) ;
 
 		if( utility::platformIsNOTWindows() ){
 
@@ -117,14 +126,14 @@ engines::engine::args securefs::command( const QByteArray& password,
 			auto fsname    = fuseOptions.extractStartsWith( "fsname=" ).mid( 7 ) ;
 			auto fssubtype = fuseOptions.extractStartsWith( "subtype=" ).mid( 8 ) ;
 
-			exeOptions.addPair( "--fsname",fsname ) ;
-			exeOptions.addPair( "--fssubtype",fssubtype ) ;
+			exeOptions.add( "--fsname",fsname ) ;
+			exeOptions.add( "--fssubtype",fssubtype ) ;
 
-			if( !args.opt.keyFile.isEmpty() ){
+			if( !args.keyFile.isEmpty() ){
 
-				exeOptions.addPair( "--keyfile",utility::Task::makePath( args.opt.keyFile ) ) ;
+				exeOptions.add( "--keyfile",args.keyFile ) ;
 
-				if( !args.opt.key.isEmpty()){
+				if( !args.key.isEmpty() ){
 
 					exeOptions.add( "--askpass" ) ;
 				}
@@ -133,16 +142,12 @@ engines::engine::args securefs::command( const QByteArray& password,
 
 		if( !args.configFilePath.isEmpty() ){
 
-			exeOptions.add( args.configFilePath ) ;
+			exeOptions.add( this->configFileArgument(),args.configFilePath ) ;
 		}
 
-		auto cmd = exe.arg( args.exe,
-				    exeOptions.get(),
-				    args.cipherFolder,
-				    args.mountPoint,
-				    fuseOptions.get() ) ;
+		exeOptions.add( args.cipherFolder,args.mountPoint,fuseOptions ) ;
 
-		return { args,m,cmd } ;
+		return { args,m,this->executableFullPath(),exeOptions.get() } ;
 	}
 }
 
@@ -162,7 +167,7 @@ engines::engine::status securefs::errorCode( const QString& e,int s ) const
 	}
 }
 
-bool securefs::requiresAPassword( const engines::engine::cmdArgsList::options& opt ) const
+bool securefs::requiresAPassword( const engines::engine::cmdArgsList& opt ) const
 {
 	if( opt.mountOptions.contains( "--keyfile" ) || !opt.keyFile.isEmpty() ){
 

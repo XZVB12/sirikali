@@ -72,91 +72,12 @@ class QEvent ;
 
 namespace utility
 {
-	class raii
-	{
-	public:
-		raii( std::function< void() > s ) : m_function( std::move( s ) )
-		{
-		}
-		~raii()
-		{
-			if( m_run ){
+	using qstringlist_result = utility2::result< QStringList > ;
+	using qbytearray_result  = utility2::result< QByteArray > ;
+	using qstring_result     = utility2::result< QString > ;
+	using bool_result        = utility2::result< bool > ;
+	using int_result         = utility2::result< int > ;
 
-				m_function() ;
-			}
-		}
-		void cancel()
-		{
-			m_run = false ;
-		}
-	private:
-		bool m_run = true ;
-		std::function< void() > m_function ;
-	};
-	template< typename T >
-	class result
-	{
-	public:
-		result()
-		{
-		}
-		result( T e ) : m_valid( true ),m_value( std::move( e ) )
-		{
-		}
-		T * operator->()
-		{
-			return &m_value ;
-		}
-		const T * operator->() const
-		{
-			return &m_value ;
-		}
-		T& operator*()
-		{
-			return m_value ;
-		}
-		const T& operator*() const
-		{
-			return m_value ;
-		}
-		operator bool()
-		{
-			return m_valid ;
-		}
-		bool has_value() const
-		{
-			return m_valid ;
-		}
-		T& value()
-		{
-			return m_value ;
-		}
-		const T& value() const
-		{
-			return m_value ;
-		}
-		T&& RValue()
-		{
-			return std::move( m_value ) ;
-		}
-		void set( T value )
-		{
-			m_value = std::move( value ) ;
-			m_valid = true ;
-		}
-	private:
-		bool m_valid = false ;
-		T m_value ;
-	} ;	
-
-	using qbytearray_result = result< QString > ;
-	using qstring_result    = result< QString > ;
-	using bool_result       = result< bool > ;
-	using int_result        = result< int > ;
-}
-
-namespace utility
-{
 	struct debug
 	{
 		static void showDebugWindow( const QString& ) ;
@@ -234,13 +155,6 @@ namespace utility
 		utility::debug operator<<( const QStringList& ) ;
 	};
 
-	struct wallet
-	{
-		bool opened ;
-		bool notConfigured ;
-		QString key ;
-	};
-
 	struct fsInfo
 	{
 		bool valid ;
@@ -263,10 +177,6 @@ namespace utility
 
 	bool printVersionOrHelpInfo( const QStringList& ) ;
 
-	QString getKey( const QString& keyID,const secrets& secret ) ;
-
-	wallet getKey( const QString& keyID,LXQt::Wallet::Wallet&,QWidget * = nullptr ) ;
-
 	QString cmdArgumentValue( const QStringList&,const QString& arg,const QString& defaulT = QString() ) ;
 
 	QByteArray readPassword( bool = true ) ;
@@ -274,7 +184,9 @@ namespace utility
 	QByteArray convertPassword( const QString& ) ;
 	QString convertPassword( const QByteArray& ) ;
 
-	QIcon getIcon() ;
+	enum class iconType{ trayIcon,general } ;
+
+	QIcon getIcon( iconType ) ;
 
 	QStringList directoryList( const QString& e ) ;
 
@@ -352,7 +264,7 @@ namespace utility
 
 	void setDefaultMountPointPrefix( const QString& path ) ;
 
-	utility::result< QByteArray > yubiKey( const QByteArray& challenge ) ;
+	qbytearray_result yubiKey( const QByteArray& challenge ) ;
 
 	QString mountPathPostFix( const QString& path ) ;
 	QString mountPathPostFix( const QString& prefix,const QString& path ) ;
@@ -385,7 +297,7 @@ namespace utility
 	QString removeFirstAndLast( const QString&,int firstChars,int lastChars ) ;
 	QString removeLastPathComponent( const QString& path,char separator = '/' ) ;
 
-	void logCommandOutPut( const ::Task::process::result&,const QString& ) ;
+	void logCommandOutPut( const ::Task::process::result&,const QString&,const QStringList& ) ;
 	void logCommandOutPut( const QString& ) ;
 
 	void setDebugWindow( debugWindow * ) ;
@@ -515,24 +427,31 @@ namespace utility
 	class Task
 	{
 	public :
-		static ::Task::future< utility::Task >& run( const QString& exe,bool e ) ;
-
-		static ::Task::future< utility::Task >& run( const QString& exe,int,bool e ) ;
+		static ::Task::future< utility::Task >& run( const QString& exe,
+							     const QStringList& list,
+							     bool e ) ;
 
 		static ::Task::future< utility::Task >& run( const QString& exe,
+							     const QStringList& list,
+							     int,
+							     bool e ) ;
+
+		static ::Task::future< utility::Task >& run( const QString& exe,
+							     const QStringList& list,
 							     const QByteArray& password = QByteArray() )
 		{
 			return ::Task::run( [ = ](){
 
-				return utility::Task( exe,-1,utility::systemEnvironment(),password ) ;
+				return utility::Task( exe,list,-1,utility::systemEnvironment(),password ) ;
 			} ) ;
 		}
 
 		static void exec( const QString& exe,
+				  const QStringList& list,
 				  const QProcessEnvironment& env = utility::systemEnvironment(),
 				  std::function< void() > f = [](){} )
 		{
-			::Task::exec( [ = ](){ utility::Task( exe,env,f ) ; } ) ;
+			::Task::exec( [ = ](){ utility::Task( exe,list,env,f ) ; } ) ;
 		}
 		static void wait( int s )
 		{
@@ -562,12 +481,6 @@ namespace utility
 
 			l.exec() ;
 		}
-		static QString makePath( QString e )
-		{
-			e.replace( "\"","\"\"\"" ) ;
-
-			return "\"" + e + "\"" ;
-		}
 		Task()
 		{
 		}
@@ -579,14 +492,38 @@ namespace utility
 			m_exitStatus = e.exit_status() ;
 			m_finished = e.finished() ;
 		}
-		Task( const QString& exe,int waitTime = -1,const QProcessEnvironment& env = utility::systemEnvironment(),
-		      const QByteArray& password = QByteArray(),std::function< void() > f = [](){},bool e = false )
+		Task( const QString& exe,
+		      const QStringList& list = QStringList(),
+		      int waitTime = -1,
+		      const QProcessEnvironment& env = utility::systemEnvironment(),
+		      const QByteArray& password = QByteArray(),
+		      std::function< void() > f = [](){},
+		      bool use_polkit = false,
+		      bool runs_in_background = true )
 		{
-			this->execute( exe,waitTime,env,password,std::move( f ),e ) ;
+			this->execute( exe,
+				       list,
+				       waitTime,
+				       env,
+				       password,
+				       std::move( f ),
+				       use_polkit,
+				       runs_in_background ) ;
 		}
-		Task( const QString& exe,const QProcessEnvironment& env,std::function< void() > f,bool e = false )
+		Task( const QString& exe,
+		      const QStringList& list,
+		      const QProcessEnvironment& env,
+		      std::function< void() > f,
+		      bool use_polkit = false )
 		{
-			this->execute( exe,-1,env,QByteArray(),std::move( f ),e ) ;
+			this->execute( exe,
+				       list,
+				       -1,
+				       env,
+				       QByteArray(),
+				       std::move( f ),
+				       use_polkit,
+				       true ) ;
 		}
 
 		enum class channel{ stdOut,stdError } ;
@@ -640,8 +577,14 @@ namespace utility
 			return { m_stdOut,m_stdError,m_exitCode,m_exitStatus,m_finished } ;
 		}
 	private:
-		void execute( const QString& exe,int waitTime,const QProcessEnvironment& env,
-			      const QByteArray& password,std::function< void() > f,bool e ) ;
+		void execute( const QString& exe,
+			      const QStringList& list,
+			      int waitTime,
+			      const QProcessEnvironment& env,
+			      const QByteArray& password,
+			      std::function< void() > f,
+			      bool e,
+			      bool runs_in_background ) ;
 
 		QByteArray m_stdOut ;
 		QByteArray m_stdError ;
@@ -650,7 +593,7 @@ namespace utility
 		bool m_finished = false ;
 	};
 
-	using task_result = utility::result< utility::Task > ;
+	using task_result = utility2::result< utility::Task > ;
 }
 
 #endif // MISCFUNCTIONS_H

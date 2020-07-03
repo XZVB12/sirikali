@@ -121,7 +121,7 @@ void createBackendWIndow::save()
 		return DialogMsg( this ).ShowUIOK( tr( "ERROR" ),tr( "Wrong Password Field Can Not Be Empty" ) ) ;
 	}
 
-	SirikaliJson config ;
+	SirikaliJson config( []( const QString& e ){ utility::debug() << e ; } ) ;
 
 	auto _addList = [ & ]( const QString& e ){
 
@@ -141,44 +141,42 @@ void createBackendWIndow::save()
 	} ;
 
 	try {
-		config[ "versionNumber" ]               = "1.1" ;
+		QStringList emptyStringList ;
 
-		//start of version 1.0
 		config[ "createControlStructure" ]      = "%{createOptions} %{cipherFolder} %{mountPoint}" ;
 		config[ "mountControlStructure" ]       = "%{mountOptions} %{cipherFolder} %{mountPoint} %{fuseOpts}" ;
 		config[ "idleString" ]                  = "" ;
 		config[ "reverseString" ]               = "" ;
-		config[ "unMountCommand" ]              = "" ;
-		config[ "windowsUnMountCommand" ]       = "" ;
+		config[ "unMountCommand" ]              = emptyStringList ;
+		config[ "windowsUnMountCommand" ]       = emptyStringList ;
+		config[ "fileExtensions" ]              = emptyStringList ;
+		config[ "unMountCommand" ]              = emptyStringList ;
+		config[ "volumePropertiesCommands" ]    = emptyStringList ;
 		config[ "passwordFormat" ]              = "%{password}" ;
 		config[ "windowsInstallPathRegistryKey" ]   = "" ;
 		config[ "windowsInstallPathRegistryValue" ] = "" ;
+		config[ "windowsSupportsMountPointPaths" ]  = m_ui->cbSupportsMountPointPaths->isChecked() ;
+		config[ "windowsSuccessfullyMountedList" ]  = _addList( m_ui->lineEditSuccessfullyMountedText->text() ) ;
 		config[ "executableName" ]              = executable ;
 		config[ "configFileNames" ]             = _addList( configFileNames ) ;
 		config[ "fuseNames" ]                   = _addList( fusenames ) ;
 		config[ "names" ]                       = _addList( names ) ;
-		config[ "fileExtensions" ]              = QStringList() ;
-		config[ "volumePropertiesCommands" ]    = QStringList() ;
 		config[ "failedToMountTextList" ]       = _addList( m_ui->lineEditFailedToMountText->text() ) ;
-		config[ "successfullyMountedList" ]     = _addList( m_ui->lineEditSuccessfullyMountedText->text() ) ;
 		config[ "configFileArgument" ]          = m_ui->lineEditConfigFileArgument->text() ;
 		config[ "wrongPasswordText" ]           = password ;
 		config[ "wrongPasswordErrorCode" ]      = m_ui->lineEditWrongPasswordErrorCode->text() ;
 		config[ "requiresAPassword" ]           = m_ui->cbRequiresAPassword->isChecked() ;
-		config[ "supportsMountPointPaths" ]     = m_ui->cbSupportsMountPointPaths->isChecked() ;
 		config[ "autoMountsOnVolumeCreation" ]  = m_ui->cbAutoMountsOnVolumeCreation->isChecked() ;
-
-		//start of version 1.1
 		config[ "backendRequireMountPath" ]     = true ;
 		config[ "autorefreshOnMountUnMount" ]   = true ;
 		config[ "backendTimeout" ]              = 0 ;
 		config[ "takesTooLongToUnlock" ]        = false ;
+		config[ "runsInBackGround" ]            = true ;
+		config[ "setsCipherPath" ]              = true ;
+		config[ "acceptsSubType" ]              = true ;
+		config[ "acceptsVolName" ]              = true ;
 
 		config.toFile( path ) ;
-
-	}catch( const SirikaliJson::exception& e ){
-
-		_log_error( e.what(),path ) ;
 
 	}catch( const std::exception& e ){
 

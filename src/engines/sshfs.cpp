@@ -38,6 +38,7 @@ static engines::engine::BaseOptions _setOptions()
 	s.supportsMountPathsOnWindows = true ;
 	s.autorefreshOnMountUnMount   = true ;
 	s.backendRequireMountPath     = true ;
+	s.backendRunsInBackGround     = true ;
 	s.requiresPolkit        = false ;
 	s.customBackend         = false ;
 	s.requiresAPassword     = false ;
@@ -45,11 +46,13 @@ static engines::engine::BaseOptions _setOptions()
 	s.autoMountsOnCreate    = true ;
 	s.hasGUICreateOptions   = false ;
 	s.setsCipherPath        = true ;
-	s.windowsUnMountCommand = "" ;
+	s.acceptsSubType        = true ;
+	s.acceptsVolName        = true ;
 	s.executableName        = "sshfs" ;
 	s.releaseURL            = "https://api.github.com/repos/libfuse/sshfs/releases" ;
 	s.windowsInstallPathRegistryKey = "SOFTWARE\\SSHFS-Win" ;
 	s.windowsInstallPathRegistryValue = "InstallDir" ;
+	s.windowsUnMountCommand           = QStringList{ "taskkill","/F","/PID","%{PID}" } ;
 	s.failedToMountList     = QStringList{ "ssh:","read:","Cannot create WinFsp-FUSE file system" } ;
 	s.successfulMountedList = QStringList{ "has been started" } ;
 	s.fuseNames             = QStringList{ "fuse.sshfs" } ;
@@ -72,7 +75,7 @@ sshfs::sshfs() :
 {
 }
 
-engines::engine::status sshfs::passAllRequirenments( const engines::engine::cmdArgsList::options& opt ) const
+engines::engine::status sshfs::passAllRequirenments( const engines::engine::cmdArgsList& opt ) const
 {
 	if( utility::platformIsWindows() ){
 
@@ -99,32 +102,32 @@ const QProcessEnvironment& sshfs::getProcessEnvironment() const
 }
 
 engines::engine::args sshfs::command( const QByteArray& password,
-				      const engines::engine::cmdArgsList& args ) const
+				      const engines::engine::cmdArgsList& args,
+				      bool create ) const
 {
 	Q_UNUSED( password )
+	Q_UNUSED( create )
 
-	engines::engine::commandOptions m( args,this->name(),this->name() ) ;
+	engines::engine::commandOptions m( *this,args ) ;
 
 	auto fuseOptions = m.fuseOpts() ;
 	auto exeOptions  = m.exeOptions() ;
 
-	if( !args.opt.key.isEmpty() ){
+	if( !args.key.isEmpty() ){
 
 		fuseOptions.add( "password_stdin" ) ;
 	}
 
 	if( fuseOptions.doesNotContain( "StrictHostKeyChecking=" ) ){
 
-		fuseOptions.addPair( "StrictHostKeyChecking","no" ) ;
+		fuseOptions.add( "StrictHostKeyChecking=no" ) ;
 	}
 
 	if( utility::platformIsWindows() ){
 
 		exeOptions.add( "-f" ) ;
 
-		auto m = utility::removeFirstAndLast( args.mountPoint,1,1 ) ;
-
-		if( utility::isDriveLetter( m ) ){
+		if( utility::isDriveLetter( args.mountPoint ) ){
 
 			if( !fuseOptions.contains( "--VolumePrefix=" ) ){
 
@@ -143,7 +146,7 @@ engines::engine::args sshfs::command( const QByteArray& password,
 			 * requires the mount path to not exist and we are deleting
 			 * it because SiriKali created it previously.
 			 */
-			utility::removeFolder( m,5 ) ;
+			utility::removeFolder( args.mountPoint,5 ) ;
 		}
 	}
 
@@ -154,6 +157,8 @@ engines::engine::args sshfs::command( const QByteArray& password,
 		auto n = fuseOptions.extractStartsWith( m ).replace( m,"" ) ;
 
 		m_environment.insert( "SSH_AUTH_SOCK",n ) ;
+
+		utility::debug() << "Sshfs: Setting Env Variable Of: SSH_AUTH_SOCK=" + n ;
 	}else{
 		auto m = qgetenv( "SSH_AUTH_SOCK" ) ;
 
@@ -161,19 +166,15 @@ engines::engine::args sshfs::command( const QByteArray& password,
 
 			m_environment.remove( "SSH_AUTH_SOCK" ) ;
 		}else{
+			utility::debug() << "Sshfs: Setting Env Variable Of: SSH_AUTH_SOCK=" + m ;
+
 			m_environment.insert( "SSH_AUTH_SOCK",m ) ;
 		}
 	}
 
-	QString s = "%1 %2 %3 %4 %5" ;
+	exeOptions.add( args.cipherFolder,args.mountPoint,fuseOptions ) ;
 
-	auto cmd = s.arg( args.exe,
-			  exeOptions.get(),
-			  args.cipherFolder,
-			  args.mountPoint,
-			  fuseOptions.get() ) ;
-
-	return { args,m,cmd } ;
+	return { args,m,this->executableFullPath(),exeOptions.get() } ;
 }
 
 engines::engine::status sshfs::errorCode( const QString& e,int s ) const

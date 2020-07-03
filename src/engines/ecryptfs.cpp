@@ -31,6 +31,7 @@ static engines::engine::BaseOptions _setOptions()
 	s.supportsMountPathsOnWindows = false ;
 	s.autorefreshOnMountUnMount   = true ;
 	s.backendRequireMountPath     = true ;
+	s.backendRunsInBackGround     = true ;
 	s.requiresPolkit        = true ;
 	s.customBackend         = false ;
 	s.requiresAPassword     = true ;
@@ -88,7 +89,7 @@ ecryptfs::ecryptfs() :
 {
 }
 
-void ecryptfs::updateOptions( engines::engine::cmdArgsList::options& opt,bool creating ) const
+void ecryptfs::updateOptions( engines::engine::cmdArgsList& opt,bool creating ) const
 {
 	Q_UNUSED( creating )
 
@@ -103,60 +104,48 @@ bool ecryptfs::requiresPolkit() const
 	return m_requirePolkit ;
 }
 
-template< typename Function >
-static bool _unmount_ecryptfs_( Function cmd )
-{
-	auto s = siritask::unmountVolume( cmd(),QString(),true ) ;
-
-	if( s && s.value().success() ){
-
-		return true ;
-	}else{		
-		return false ;
-	}
-}
-
-QString ecryptfs::wrapSU( const QString& s ) const
+engines::engine::exe ecryptfs::wrapSU( const QString& s ) const
 {
 	const auto& su = m_exeSUFullPath.get() ;
 
 	if( su.isEmpty() ){
 
-		return s ;
+		return {} ;
 	}else{
-		return QString( "%1 - -c \"%2\"" ).arg( su,QString( s ).replace( "\"","'" ) ) ;
+		return { su,{ "-","-c",s } } ;
 	}
 }
 
-engines::engine::status ecryptfs::unmount( const QString& cipherFolder,
-					   const QString& mountPoint,
-					   int maxCount ) const
+engines::engine::status ecryptfs::unmount( const engines::engine::unMount& e ) const
 {
-	Q_UNUSED( mountPoint )
+	auto usePolkit = utility::useSiriPolkit() ;
 
-	auto cmd = [ & ](){
+	auto cmd = [ & ]()->engines::engine::exe{
 
 		auto exe = this->executableFullPath() ;
 
-		auto s = exe + " -k " + cipherFolder ;
+		if( usePolkit ){
 
-		if( utility::useSiriPolkit() ){
+			auto s = this->wrapSU( exe ) ;
 
-			return this->wrapSU( s ) ;
-		}else{
+			s.args[ 2 ].append( " -k " + e.cipherFolder ) ;
+
 			return s ;
+		}else{
+			return { exe,{ "-k",e.cipherFolder } } ;
 		}
 	} ;
 
-	if( _unmount_ecryptfs_( cmd ) ){
+
+	if( this->unmountVolume( cmd(),usePolkit ) ){
 
 		return engines::engine::status::success ;
 	}else{
-		for( int i = 1 ; i < maxCount ; i++ ){
+		for( int i = 1 ; i < e.numberOfAttempts ; i++ ){
 
 			utility::Task::waitForOneSecond() ;
 
-			if( _unmount_ecryptfs_( cmd ) ){
+			if( this->unmountVolume( cmd(),usePolkit ) ){
 
 				return engines::engine::status::success ;
 			}
@@ -167,49 +156,50 @@ engines::engine::status ecryptfs::unmount( const QString& cipherFolder,
 }
 
 engines::engine::args ecryptfs::command( const QByteArray& password,
-					 const engines::engine::cmdArgsList& args ) const
+					 const engines::engine::cmdArgsList& args,
+					 bool create ) const
 {
 	Q_UNUSED( password )
 
-	auto e = QString( "%1 %2 -a %3 %4 %5" ) ;
-
-	engines::engine::commandOptions m( args,QString() ) ;
+	engines::engine::commandOptions m( *this,args ) ;
 
 	auto exeOptions = m.exeOptions() ;
 
-	if( args.opt.boolOptions.unlockInReadOnly ){
+	if( args.boolOptions.unlockInReadOnly ){
 
 		exeOptions.add( "--readonly" ) ;
 	}
 
-	if( args.create ){
+	if( create ){
 
-		if( args.opt.createOptions.isEmpty() ){
+		if( args.createOptions.isEmpty() ){
 
-			exeOptions.add( ecryptfscreateoptions::defaultCreateOptions() ) ;
+			exeOptions.add( "-o",ecryptfscreateoptions::defaultCreateOptions() ) ;
 		}else{
-			exeOptions.add( args.opt.createOptions ) ;
+			exeOptions.add( "-o",args.createOptions ) ;
 		}
 	}else{
 		exeOptions.add( "-o","key=passphrase" ) ;
 	}
 
-	if( !args.opt.mountOptions.isEmpty() ){
+	if( !args.mountOptions.isEmpty() ){
 
-		exeOptions.add( "-o",args.opt.mountOptions ) ;
+		exeOptions.add( "-o",args.mountOptions ) ;
 	}
 
-	auto s = e.arg( args.exe,
-			exeOptions.get(),
-			args.configFilePath,
-			args.cipherFolder,
-			args.mountPoint ) ;
+	exeOptions.add( "-a",this->configFileArgument() + "=" + args.configFilePath ) ;
+
+	exeOptions.add( args.cipherFolder,args.mountPoint ) ;
 
 	if( utility::useSiriPolkit() ){
 
-		return { args,m,this->wrapSU( s ) } ;
+		auto s = this->wrapSU( this->executableFullPath() ) ;
+
+		s.args[ 2 ].append( " " + exeOptions.get().join( ' ' ) ) ;
+
+		return { args,m,s.exe,s.args } ;
 	}else{
-		return { args,m,s } ;
+		return { args,m,this->executableFullPath(),exeOptions.get() } ;
 	}
 }
 

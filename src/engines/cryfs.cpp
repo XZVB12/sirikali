@@ -29,15 +29,17 @@ static engines::engine::BaseOptions _setOptions()
 	auto a = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{26116061-4F99-4C44-A178-2153FA396308}" ;
 	auto b = "InstallLocation" ;
 
+	auto c = SiriKali::Windows::engineInstalledDir( a,b ) + "\\bin\\cryfs-unmount.exe" ;
 	s.windowsInstallPathRegistryKey   = a ;
 	s.windowsInstallPathRegistryValue = b ;
-	s.windowsUnMountCommand           = SiriKali::Windows::engineInstalledDir( a,b ) + "\\bin\\cryfs-unmount.exe" ;
+	s.windowsUnMountCommand           = QStringList{ c,"%{mountPoint}" } ;
 
 	s.backendTimeout              = 0 ;
 	s.takesTooLongToUnlock        = false ;
 	s.supportsMountPathsOnWindows = true ;
 	s.autorefreshOnMountUnMount   = true ;
 	s.backendRequireMountPath     = true ;
+	s.backendRunsInBackGround     = true ;
 	s.requiresPolkit        = false ;
 	s.customBackend         = false ;
 	s.requiresAPassword     = true ;
@@ -45,6 +47,8 @@ static engines::engine::BaseOptions _setOptions()
 	s.autoMountsOnCreate    = true ;
 	s.hasGUICreateOptions   = true ;
 	s.setsCipherPath        = true ;
+	s.acceptsSubType        = true ;
+	s.acceptsVolName        = true ;
 	s.passwordFormat        = "%{password}" ;
 	s.idleString            = "--unmount-idle" ;
 	s.executableName        = "cryfs" ;
@@ -91,13 +95,12 @@ const QProcessEnvironment& cryfs::getProcessEnvironment() const
 }
 
 engines::engine::args cryfs::command( const QByteArray& password,
-				      const engines::engine::cmdArgsList& args ) const
+				      const engines::engine::cmdArgsList& args,
+				      bool create ) const
 {
 	Q_UNUSED( password )
 
-	auto e = QString( "%1 %2 %3 %4 %5 %6" ) ;
-
-	engines::engine::commandOptions m( args,this->name(),this->name() ) ;
+	engines::engine::commandOptions m( *this,args ) ;
 
 	auto exeOptions = m.exeOptions() ;
 
@@ -106,39 +109,39 @@ engines::engine::args cryfs::command( const QByteArray& password,
 		exeOptions.add( "-f" ) ;
 	}
 
-	if( !args.opt.idleTimeout.isEmpty() ){
+	if( !args.idleTimeout.isEmpty() ){
 
-		exeOptions.addPair( this->idleString(),args.opt.idleTimeout ) ;
+		exeOptions.add( this->idleString(),args.idleTimeout ) ;
 	}
 
-	if( args.create ){
+	if( create && !args.createOptions.isEmpty() ){
 
-		exeOptions.add( args.opt.createOptions ) ;
+		exeOptions.add( utility::split( args.createOptions,' ' ) ) ;
 	}
 
 	if( !args.configFilePath.isEmpty() ){
 
-		exeOptions.add( args.configFilePath ) ;
+		exeOptions.add( this->configFileArgument(),args.configFilePath ) ;
 	}
 
-	if( args.opt.boolOptions.allowReplacedFileSystem ){
+	if( args.boolOptions.allowReplacedFileSystem ){
 
 		exeOptions.add( "--allow-replaced-filesystem" ) ;
 	}
 
-	if( args.opt.boolOptions.allowUpgradeFileSystem ){
+	if( args.boolOptions.allowUpgradeFileSystem ){
 
 		exeOptions.add( "--allow-filesystem-upgrade" ) ;
 	}
 
-	auto cmd = e.arg( args.exe,
-			  exeOptions.get(),
-			  args.cipherFolder,
-			  args.mountPoint,
-			  m_version_greater_or_equal_0_10_0 ? "" : "--",
-			  m.fuseOpts().get() ) ;
+	if( m_version_greater_or_equal_0_10_0 ){
 
-	return { args,m,cmd } ;
+		exeOptions.add( args.cipherFolder,args.mountPoint,m.fuseOpts() ) ;
+	}else{
+		exeOptions.add( args.cipherFolder,args.mountPoint,"--",m.fuseOpts() ) ;
+	}
+
+	return { args,m,this->executableFullPath(),exeOptions.get() } ;
 }
 
 engines::engine::status cryfs::errorCode( const QString& e,int s ) const
@@ -185,7 +188,7 @@ engines::engine::status cryfs::errorCode( const QString& e,int s ) const
 	return engines::engine::status::backendFail ;
 }
 
-void cryfs::updateOptions( engines::engine::cmdArgsList::options& e,bool creating ) const
+void cryfs::updateOptions( engines::engine::cmdArgsList& e,bool creating ) const
 {
 	Q_UNUSED( creating )
 
@@ -195,7 +198,7 @@ void cryfs::updateOptions( engines::engine::cmdArgsList::options& e,bool creatin
 	}
 }
 
-engines::engine::status cryfs::passAllRequirenments( const engines::engine::cmdArgsList::options& opt ) const
+engines::engine::status cryfs::passAllRequirenments( const engines::engine::cmdArgsList& opt ) const
 {
 	auto s = engines::engine::passAllRequirenments( opt ) ;	
 

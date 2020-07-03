@@ -27,7 +27,7 @@
 #include <QFile>
 #include <QCryptographicHash>
 
-static utility::result< QString > _config_path()
+static utility::qstring_result _config_path()
 {
 	QString m = settings::instance().ConfigLocation() + "/favorites/" ;
 
@@ -130,13 +130,17 @@ static void _log_error( const QString& msg,const QString& path )
 	utility::debug::showDebugWindow( msg + a ) ;
 }
 
-utility::result< favorites::entry > favorites::readFavoriteByPath( const QString& path ) const
+utility2::result< favorites::entry > favorites::readFavoriteByPath( const QString& path ) const
 {
 	try {
-		SirikaliJson json( path,SirikaliJson::type::PATH ) ;
+		SirikaliJson json( path,
+				   SirikaliJson::type::PATH,
+				   []( const QString& e ){ utility::debug() << e ; } ) ;
 
 		favorites::entry m ;
 
+		m.reverseMode          = json.getBool( "reverseMode" ) ;
+		m.volumeNeedNoPassword = json.getBool( "volumeNeedNoPassword" ) ;
 		m.volumePath           = json.getString( "volumePath" ) ;
 		m.mountPointPath       = json.getString( "mountPointPath" ) ;
 		m.configFilePath       = json.getString( "configFilePath" ) ;
@@ -146,24 +150,13 @@ utility::result< favorites::entry > favorites::readFavoriteByPath( const QString
 		m.postMountCommand     = json.getString( "postMountCommand" ) ;
 		m.preUnmountCommand    = json.getString( "preUnmountCommand" ) ;
 		m.postUnmountCommand   = json.getString( "postUnmountCommand" ) ;
-		m.reverseMode          = json.getBool( "reverseMode" ) ;
-		m.volumeNeedNoPassword = json.getBool( "volumeNeedNoPassword" ) ;
 
-		try {
-			m.keyFile      = json.getString( "keyFilePath" ) ;
-
-		}catch( ... ) {
-
-		}
+		m.keyFile              = json.getString( "keyFilePath" ) ;
 
 		favorites::triState::readTriState( json,m.readOnlyMode,"mountReadOnly" ) ;
 		favorites::triState::readTriState( json,m.autoMount,"autoMountVolume" ) ;
 
 		return m ;
-
-	}catch( const SirikaliJson::exception& e ){
-
-		_log_error( e.what(),path ) ;
 
 	}catch( const std::exception& e ){
 
@@ -205,7 +198,7 @@ std::vector<favorites::entry> favorites::readFavorites() const
 	return e ;
 }
 
-utility::result< favorites::entry > favorites::readFavorite( const QString& e,const QString& s ) const
+utility2::result< favorites::entry > favorites::readFavorite( const QString& e,const QString& s ) const
 {
 	if( s.isEmpty() ){
 
@@ -258,7 +251,7 @@ favorites::error favorites::add( const favorites::entry& e )
 	auto a = _create_path( m.value(),e ) ;
 
 	try{
-		SirikaliJson json ;
+		SirikaliJson json( []( const QString& e ){ utility::debug() << e ; } ) ;
 
 		json[ "volumePath" ]           = e.volumePath ;
 		json[ "mountPointPath" ]       = e.mountPointPath ;
@@ -287,10 +280,6 @@ favorites::error favorites::add( const favorites::entry& e )
 				return error::FAILED_TO_CREATE_ENTRY ;
 			}
 		}
-
-	}catch( const SirikaliJson::exception& e ){
-
-		_log_error( e.what(),a ) ;
 
 	}catch( const std::exception& e ){
 

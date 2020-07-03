@@ -20,6 +20,7 @@
 #include "secrets.h"
 #include "utility.h"
 #include "win.h"
+#include "settings.h"
 
 secrets::secrets( QWidget * parent ) : m_parent( parent )
 {
@@ -27,36 +28,26 @@ secrets::secrets( QWidget * parent ) : m_parent( parent )
 
 void secrets::changeInternalWalletPassword( const QString& walletName,
 					    const QString& appName,
-					    std::function< void( bool ) > function )
+					    std::function< void( bool ) > ff )
 {
 	auto e = this->internalWallet() ;
-	auto f = *e ;
 
-	f->changeWalletPassWord( walletName,appName,[ e,f,function = std::move( function ) ]( bool q ){
+	e->changeWalletPassWord( walletName,appName,[ ff = std::move( ff ) ]( bool q ){
 
-		if( q ){
-
-			f->deleteLater() ;
-			*e = nullptr ;
-		}
-
-		function( q ) ;
+		ff( q ) ;
 	} ) ;
 }
 
 void secrets::changeWindowsDPAPIWalletPassword( const QString& walletName,
 						const QString& appName,
-						std::function< void( bool ) > function )
+						std::function< void( bool ) > f )
 {
 	auto s = this->windows_dpapiBackend() ;
 
-	if( s ){
+	s->changeWalletPassWord( walletName,appName,[ f = std::move( f ) ]( bool q ){
 
-		s->changeWalletPassWord( walletName,appName,[ function = std::move( function ) ]( bool q ){
-
-			function( q ) ;
-		} ) ;
-	}
+		f( q ) ;
+	} ) ;
 }
 
 secrets::~secrets()
@@ -73,27 +64,27 @@ void secrets::close()
 	m_windows_dpapi = nullptr ;
 }
 
-LXQt::Wallet::Wallet ** secrets::internalWallet() const
+LXQt::Wallet::Wallet * secrets::internalWallet() const
 {
 	if( m_internalWallet == nullptr ){
 
 		namespace w = LXQt::Wallet ;
 
-		m_internalWallet = w::getWalletBackend( w::BackEnd::internal ) ;
+		m_internalWallet = w::getWalletBackend( w::BackEnd::internal ).release() ;
 
 		m_internalWallet->setParent( m_parent ) ;
 	}
 
-	return &m_internalWallet ;
+	return m_internalWallet ;
 }
 
 LXQt::Wallet::Wallet * secrets::windows_dpapiBackend() const
 {
 	if( m_windows_dpapi == nullptr ){
 
-		auto a = SiriKali::Windows::windowsWalletBackend() ;
+		auto a = LXQt::Wallet::BackEnd::windows_dpapi ;
 
-		m_windows_dpapi = LXQt::Wallet::getWalletBackend( a ) ;
+		m_windows_dpapi = LXQt::Wallet::getWalletBackend( a ).release() ;
 
 		m_windows_dpapi->setParent( m_parent ) ;
 	}
@@ -103,7 +94,7 @@ LXQt::Wallet::Wallet * secrets::windows_dpapiBackend() const
 
 secrets::wallet secrets::walletBk( LXQt::Wallet::BackEnd e ) const
 {
-	if( e == SiriKali::Windows::windowsWalletBackend() ){
+	if( e == LXQt::Wallet::BackEnd::windows_dpapi ){
 
 		return this->windows_dpapiBackend() ;
 
@@ -111,7 +102,7 @@ secrets::wallet secrets::walletBk( LXQt::Wallet::BackEnd e ) const
 
 		return this->internalWallet() ;
 	}else{
-		return LXQt::Wallet::getWalletBackend( e ) ;
+		return LXQt::Wallet::getWalletBackend( e ).release() ;
 	}
 }
 
@@ -129,22 +120,15 @@ static void _delete( LXQt::Wallet::Wallet * w )
 {
 	if( w ){
 
-		using e = LXQt::Wallet::BackEnd ;
+		auto wb = LXQt::Wallet::BackEnd::windows_dpapi ;
 
 		auto m = w->backEnd() ;
 
-		#ifdef Q_OS_WIN
-			if( m == e::windows_DPAPI || m == e::internal ){
+		if( m == wb || m == LXQt::Wallet::BackEnd::internal ){
 
-			}else{
-				delete w ;
-			}
-		#else
-			if( m != e::internal ){
-
-				delete w ;
-			}
-		#endif
+		}else{
+			delete w ;
+		}
 	}
 }
 
@@ -153,10 +137,6 @@ secrets::wallet::wallet()
 }
 
 secrets::wallet::wallet( LXQt::Wallet::Wallet * w ) : m_wallet( w )
-{
-}
-
-secrets::wallet::wallet( LXQt::Wallet::Wallet ** w ) : m_wallet( *w )
 {
 }
 
@@ -170,4 +150,61 @@ secrets::wallet::wallet( secrets::wallet&& w )
 	_delete( m_wallet ) ;
 	m_wallet = w.m_wallet ;
 	w.m_wallet = nullptr ;
+}
+
+secrets::wallet::walletKey secrets::wallet::getKey( const QString& keyID,QWidget * widget )
+{
+	auto _getKey = []( LXQt::Wallet::Wallet * wallet,const QString& volumeID ){
+
+		return ::Task::await( [ & ](){ return wallet->readValue( volumeID ) ; } ) ;
+	} ;
+
+	walletKey w{ false,false,"" } ;
+
+	auto s = m_wallet->backEnd() ;
+	auto& wlt = settings::instance() ;
+
+	auto _open = [ & ]( bool s ){
+
+		if( s ){
+
+			auto m = this->openSync( [](){ return true ; },
+						 [ & ](){ if( widget ){	widget->hide() ; } },
+						 [ & ](){ if( widget ){	widget->show() ; } } ) ;
+
+			w.opened = m ;
+
+			if( w.opened ){
+
+				w.key = _getKey( m_wallet,keyID ) ;
+			}
+		}else{
+			w.notConfigured = true ;
+		}
+	} ;
+
+	if( s == LXQt::Wallet::BackEnd::internal ){
+
+		_open( LXQt::Wallet::walletExists( s,wlt.walletName(),wlt.applicationName() ) ) ;
+
+	}else if( s == LXQt::Wallet::BackEnd::windows_dpapi ){
+
+		_open( true ) ;
+	}else{
+		w.opened = m_wallet->open( wlt.walletName( s ),wlt.applicationName() ) ;
+
+		if( w.opened ){
+
+			w.key = _getKey( m_wallet,keyID ) ;
+		}
+	}
+
+	return w ;
+}
+
+secrets::wallet::info secrets::wallet::walletInfo()
+{
+	auto& e = settings::instance() ;
+
+	return { e.walletName( m_wallet->backEnd() ),e.applicationName() } ;
 }

@@ -66,15 +66,15 @@ Task::future< bool >& favorites2::addKey( secrets::wallet& wallet,
 
 favorites2::favorites2( QWidget * parent,
 			secrets& wallet,
-			favorites::type type,
 			std::function< void() > function,
+			const QString& vt,
 			const QString& cp ) :
 	QDialog ( parent ),
 	m_ui( new Ui::favorites2 ),
 	m_secrets( wallet ),
-	m_type( type ),
 	m_settings( settings::instance() ),
 	m_function( std::move( function ) ),
+	m_volumeType( vt.toLower() ),
 	m_cipherPath( cp )
 {
 	m_ui->setupUi( this ) ;
@@ -253,9 +253,16 @@ favorites2::favorites2( QWidget * parent,
 
 		auto a = m_ui->lineEditEncryptedFolderPath->toPlainText() ;
 
-		if( !a.isEmpty() && !m_ui->rbNone->isChecked() ){
+		if( !a.isEmpty() ){
 
-			m_ui->lineEditVolumePath->setText( a ) ;
+			auto b = m_ui->lineEditVolumeType->toPlainText() ;
+
+			if( b.isEmpty() ){
+
+				m_ui->lineEditVolumePath->setText( a ) ;
+			}else{
+				m_ui->lineEditVolumePath->setText( b.toLower() + " " + a ) ;
+			}
 
 			m_ui->tabWidget->setCurrentIndex( 2 ) ;
 		}
@@ -279,11 +286,11 @@ favorites2::favorites2( QWidget * parent,
 	m_ui->rbKWallet->setEnabled( LXQt::Wallet::backEndIsSupported( bk::kwallet ) ) ;
 	m_ui->rbLibSecret->setEnabled( LXQt::Wallet::backEndIsSupported( bk::libsecret ) ) ;
 	m_ui->rbMacOSKeyChain->setEnabled( LXQt::Wallet::backEndIsSupported( bk::osxkeychain ) ) ;
-	m_ui->rbWindowsDPAPI->setEnabled( LXQt::Wallet::backEndIsSupported( SiriKali::Windows::windowsWalletBackend() ) ) ;
+	m_ui->rbWindowsDPAPI->setEnabled( LXQt::Wallet::backEndIsSupported( bk::windows_dpapi ) ) ;
 
 	auto walletBk = m_settings.autoMountBackEnd() ;
 
-	if( walletBk == SiriKali::Windows::windowsWalletBackend() ){
+	if( walletBk == bk::windows_dpapi ){
 
 		m_ui->label_22->setEnabled( true ) ;
 		m_ui->pbChangeWalletPassword->setEnabled( true ) ;
@@ -370,7 +377,7 @@ favorites2::favorites2( QWidget * parent,
 
 			m_ui->label_22->setEnabled( true ) ;
 			m_ui->pbChangeWalletPassword->setEnabled( true ) ;
-			auto bk = SiriKali::Windows::windowsWalletBackend() ;
+			auto bk = bk::windows_dpapi ;
 			this->walletBkChanged( bk ) ;
 			m_settings.autoMountBackEnd( bk ) ;
 		}
@@ -492,9 +499,9 @@ favorites2::favorites2( QWidget * parent,
 				if( s ){
 
 					this->walletBkChanged( LXQt::Wallet::BackEnd::internal ) ;
-				}else{
-					this->show() ;
 				}
+
+				this->show() ;
 			} ) ;
 
 		}else if( m_ui->rbWindowsDPAPI->isChecked() ){
@@ -505,7 +512,7 @@ favorites2::favorites2( QWidget * parent,
 
 				if( s ){
 
-					this->walletBkChanged( SiriKali::Windows::windowsWalletBackend() ) ;
+					this->walletBkChanged( LXQt::Wallet::BackEnd::windows_dpapi ) ;
 				}
 
 				this->show() ;
@@ -516,6 +523,7 @@ favorites2::favorites2( QWidget * parent,
 	m_ui->pbFolderPath->setIcon( QIcon( ":/sirikali.png" ) ) ;
 	m_ui->pbConfigFilePath->setIcon( QIcon( ":/file.png" ) ) ;
 	m_ui->pbIdentityFile->setIcon( QIcon( ":/file.png" ) ) ;
+	m_ui->pbAddToWallets->setIcon( QIcon( ":/lock.png" ) ) ;
 
 	QIcon exeIcon( ":/executable.png" ) ;
 
@@ -600,7 +608,7 @@ favorites2::favorites2( QWidget * parent,
 
 	m_ui->pbOptions->setMenu( optionsMenu ) ;
 
-	this->ShowUI( type ) ;
+	this->ShowUI() ;
 }
 
 favorites2::~favorites2()
@@ -725,37 +733,29 @@ void favorites2::walletBkChanged( LXQt::Wallet::BackEnd bk )
 
 	m_wallet = m_secrets.walletBk( bk ) ;
 
-	if( m_wallet->opened() ){
+	m_wallet.open( [ this ](){
 
 		for( const auto& it : this->readAllKeys() ){
 
 			tablewidget::addRow( m_ui->tableWidgetWallet,{ it } ) ;
 		}
-	}else{
-		this->hide() ;
 
-		m_wallet->setImage( QIcon( ":/sirikali" ) ) ;
+	},[ this ](){ this->hide() ; },[ this ]( bool opened ){
 
-		auto a = settings::instance().walletName( m_wallet->backEnd() ) ;
-		auto b = settings::instance().applicationName() ;
+		if( opened ){
 
-		m_wallet->open( a,b,[ this ]( bool opened ){
+			for( const auto& it : this->readAllKeys() ){
 
-			if( opened ){
-
-				for( const auto& it : this->readAllKeys() ){
-
-					tablewidget::addRow( m_ui->tableWidgetWallet,{ it } ) ;
-				}
-			}else{
-				m_ui->lineEditVolumePath->clear() ;
-
-				this->setControlsAvailability( false,true ) ;
+				tablewidget::addRow( m_ui->tableWidgetWallet,{ it } ) ;
 			}
+		}else{
+			m_ui->lineEditVolumePath->clear() ;
 
-			this->show() ;
-		} ) ;
-	}
+			this->setControlsAvailability( false,true ) ;
+		}
+
+		this->show() ;
+	} ) ;
 }
 
 void favorites2::setControlsAvailability( bool e,bool m )
@@ -792,6 +792,8 @@ void favorites2::tabChanged( int index )
 
 		m_ui->lineEditVolumePath->clear() ;
 		m_ui->lineEditPassword->clear() ;
+
+		m_ui->pbAddToWallets->setEnabled( !m_ui->rbNone->isChecked() ) ;
 
 		/*
 		 * Add/Edit tab
@@ -1028,7 +1030,7 @@ void favorites2::updateFavorite( bool edit )
 	auto configPath = m_ui->lineEditConfigFilePath->toPlainText() ;
 	auto idleTimeOUt = m_ui->lineEditIdleTimeOut->toPlainText() ;
 
-	if( m_type == favorites::type::sshfs ){
+	if( m_volumeType == "sshfs" ){
 
 		if( !configPath.isEmpty() ){
 
@@ -1283,10 +1285,8 @@ void favorites2::setVolumeProperties( const favorites::entry& e )
 	m_ui->textEditPostUnmount->setText( e.postUnmountCommand ) ;
 }
 
-void favorites2::ShowUI( favorites::type type )
+void favorites2::ShowUI()
 {
-	m_type = type ;
-
 	m_ui->lineEditEncryptedFolderPath->clear() ;
 
 	if( utility::platformIsWindows() ){
@@ -1296,17 +1296,18 @@ void favorites2::ShowUI( favorites::type type )
 		m_ui->lineEditMountPath->setText( m_settings.mountPath() ) ;
 	}
 
-	if( m_type == favorites::type::sshfs ){
+	if( m_volumeType == "sshfs" ){
 
 		m_ui->tabWidget->setCurrentIndex( 1 ) ;
 
 		if( utility::platformIsWindows() ){
 
-			m_ui->lineEditMountOptions->setText( "idmap=user,StrictHostKeyChecking=no,UseNetworkDrive=no" ) ;
+			m_ui->lineEditMountOptions->setText( "create_file_umask=0000,create_dir_umask=0000,umask=0000,idmap=user,StrictHostKeyChecking=no,UseNetworkDrive=no" ) ;
 		}else{
 			m_ui->lineEditMountOptions->setText( "idmap=user,StrictHostKeyChecking=no" ) ;
 		}
 
+		m_ui->lineEditEncryptedFolderPath->setText( m_cipherPath ) ;
 		m_ui->labelName ->setText( tr( "Remote Ssh Server Address\n(Example: woof@example.com:/remote/path)" ) ) ;
 		m_ui->labelCofigFilePath->setText( tr( "SSH_AUTH_SOCK Socket Path (Optional)" ) ) ;
 		m_ui->labelIdleTimeOut->setText( tr( "IdentityFile Path (Optional)" ) ) ;
