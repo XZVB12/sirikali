@@ -262,6 +262,39 @@ namespace utility
 		QWidget * m_widget ;
 	};
 
+	static inline void Timer( int interval,std::function< bool( int ) > function )
+	{
+		class Timer{
+		public:
+			Timer( int interval,std::function< bool( int ) > function ) :
+				m_function( std::move( function ) )
+			{
+				auto timer = new QTimer() ;
+
+				QObject::connect( timer,&QTimer::timeout,[ timer,this ](){
+
+					m_counter++ ;
+
+					if( m_function( m_counter ) ){
+
+						timer->stop() ;
+
+						timer->deleteLater() ;
+
+						delete this ;
+					}
+				} ) ;
+
+				timer->start( interval ) ;
+			}
+		private:
+			int m_counter = 0 ;
+			std::function< bool( int ) > m_function ;
+		} ;
+
+		new Timer( interval,std::move( function ) ) ;
+	}
+
 	void setDefaultMountPointPrefix( const QString& path ) ;
 
 	qbytearray_result yubiKey( const QByteArray& challenge ) ;
@@ -300,6 +333,8 @@ namespace utility
 	void logCommandOutPut( const ::Task::process::result&,const QString&,const QStringList& ) ;
 	void logCommandOutPut( const QString& ) ;
 
+	std::function< void( const QString& ) > jsonLogger() ;
+
 	void setDebugWindow( debugWindow * ) ;
 	void polkitFailedWarning( std::function< void() > ) ;
 	bool useSiriPolkit( void ) ;
@@ -312,6 +347,7 @@ namespace utility
 	void licenseInfo( QWidget * ) ;
 
 	void applicationStarted() ;
+	bool earlyBoot() ;
 
 	QString removeOption( const QStringList&,const QString& option ) ;
 	QString removeOption( const QString& commaSeparatedString,const QString& option ) ;

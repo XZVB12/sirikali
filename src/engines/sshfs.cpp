@@ -21,6 +21,8 @@
 #include "../settings.h"
 #include "options.h"
 
+#include "custom.h"
+
 static engines::engine::BaseOptions _setOptions()
 {
 	engines::engine::BaseOptions s ;
@@ -31,14 +33,14 @@ static engines::engine::BaseOptions _setOptions()
 	 * enough for sshfs.
 	 */
 
-	s.passwordFormat        = "%{password}\n%{password}\n%{password}\n%{password}\n%{password}\n%{password}\n%{password}\n%{password}\n%{password}\n%{password}" ;
-
+	s.passwordFormat              = "%{password}\n%{password}\n%{password}\n%{password}\n%{password}\n%{password}\n%{password}\n%{password}\n%{password}\n%{password}" ;
 	s.backendTimeout              = settings::instance().sshfsBackendTimeout() ;
 	s.takesTooLongToUnlock        = false ;
 	s.supportsMountPathsOnWindows = true ;
 	s.autorefreshOnMountUnMount   = true ;
 	s.backendRequireMountPath     = true ;
 	s.backendRunsInBackGround     = true ;
+	s.likeSsh               = true ;
 	s.requiresPolkit        = false ;
 	s.customBackend         = false ;
 	s.requiresAPassword     = false ;
@@ -60,9 +62,19 @@ static engines::engine::BaseOptions _setOptions()
 	s.notFoundCode          = engines::engine::status::sshfsNotFound ;
 	s.versionInfo           = { { "--version",true,2,0 } } ;
 
+	s.mountControlStructure = "%{mountOptions} %{cipherFolder} %{mountPoint} %{fuseOpts}" ;
+
 	if( utility::platformIsWindows() ){
 
+		s.autoCreatesMountPoint = true ;
+		s.autoDeletesMountPoint = true ;
+
 		s.minimumVersion = "3.5.2" ;
+		s.sshOptions = "create_file_umask=0000,create_dir_umask=0000,umask=0000,idmap=user,StrictHostKeyChecking=no,UseNetworkDrive=no" ;
+	}else{
+		s.autoCreatesMountPoint = false ;
+		s.autoDeletesMountPoint = false ;
+		s.sshOptions = "idmap=user,StrictHostKeyChecking=no" ;
 	}
 
 	return s ;
@@ -101,17 +113,14 @@ const QProcessEnvironment& sshfs::getProcessEnvironment() const
 	return m_environment ;
 }
 
-engines::engine::args sshfs::command( const QByteArray& password,
-				      const engines::engine::cmdArgsList& args,
-				      bool create ) const
+void sshfs::updateOptions( engines::engine::commandOptions& opts,
+			   const engines::engine::cmdArgsList& args,
+			   bool creating ) const
 {
-	Q_UNUSED( password )
-	Q_UNUSED( create )
+	Q_UNUSED( creating )
 
-	engines::engine::commandOptions m( *this,args ) ;
-
-	auto fuseOptions = m.fuseOpts() ;
-	auto exeOptions  = m.exeOptions() ;
+	auto fuseOptions = opts.fuseOpts() ;
+	auto exeOptions  = opts.exeOptions() ;
 
 	if( !args.key.isEmpty() ){
 
@@ -123,15 +132,15 @@ engines::engine::args sshfs::command( const QByteArray& password,
 		fuseOptions.add( "StrictHostKeyChecking=no" ) ;
 	}
 
+	auto s = fuseOptions.extractStartsWith( "UseNetworkDrive=" ) ;
+
 	if( utility::platformIsWindows() ){
 
 		exeOptions.add( "-f" ) ;
 
 		if( utility::isDriveLetter( args.mountPoint ) ){
 
-			if( !fuseOptions.contains( "--VolumePrefix=" ) ){
-
-				auto s = fuseOptions.extractStartsWith( "UseNetworkDrive=" ) ;
+			if( !exeOptions.contains( "--VolumePrefix=" ) ){
 
 				if( utility::endsWithAtLeastOne( s,"yes","Yes","YES" ) ){
 
@@ -140,13 +149,6 @@ engines::engine::args sshfs::command( const QByteArray& password,
 					exeOptions.add ( "--VolumePrefix=\\mysshfs\\" + x ) ;
 				}
 			}
-		}else{
-			/*
-			 * A user is trying to use a folder as a mount path and sshfs
-			 * requires the mount path to not exist and we are deleting
-			 * it because SiriKali created it previously.
-			 */
-			utility::removeFolder( args.mountPoint,5 ) ;
 		}
 	}
 
@@ -171,10 +173,13 @@ engines::engine::args sshfs::command( const QByteArray& password,
 			m_environment.insert( "SSH_AUTH_SOCK",m ) ;
 		}
 	}
+}
 
-	exeOptions.add( args.cipherFolder,args.mountPoint,fuseOptions ) ;
-
-	return { args,m,this->executableFullPath(),exeOptions.get() } ;
+engines::engine::args sshfs::command( const QByteArray& password,
+				      const engines::engine::cmdArgsList& args,
+				      bool create ) const
+{
+	return custom::set_command( *this,password,args,create ) ;
 }
 
 engines::engine::status sshfs::errorCode( const QString& e,int s ) const

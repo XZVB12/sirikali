@@ -66,7 +66,7 @@ bool siritask::deleteMountFolder( const QString& m )
 	}
 }
 
-static engines::engine::exe _cmd_args_1( QString e )
+static engines::engine::exe_args _cmd_args_1( QString e )
 {
 	e.remove( 0,1 ) ;
 
@@ -88,7 +88,7 @@ static engines::engine::exe _cmd_args_1( QString e )
 	return {} ;
 }
 
-static engines::engine::exe _cmd_args( const QString& e )
+static engines::engine::exe_args _cmd_args( const QString& e )
 {
 	if( e.isEmpty() ){
 
@@ -113,7 +113,7 @@ static engines::engine::exe _cmd_args( const QString& e )
 	return { std::move( exe ),std::move( args ) } ;
 }
 
-static void _run_command( const engines::engine::exe& exe,
+static void _run_command( const engines::engine::exe_args_const& exe,
 			  const QByteArray& password = QByteArray() )
 {
 	if( password.isEmpty() ){
@@ -155,7 +155,7 @@ static void _run_command( const run_command& e )
 		s.args.append( e.plainFolder ) ;
 		s.args.append( e.volumeType ) ;
 
-		_run_command( { s.exe,s.args },e.password ) ;
+		_run_command( s,e.password ) ;
 	}
 }
 
@@ -217,11 +217,11 @@ static engines::engine::cmdStatus _unmount( const engines::engine::unMount& e )
 
 engines::engine::cmdStatus siritask::encryptedFolderUnMount( const siritask::unmount& e )
 {
-	auto fav = favorites::instance().readFavorite( e.cipherFolder,e.mountPoint ) ;
+	const auto& fav = favorites::instance().readFavorite( e.cipherFolder,e.mountPoint ) ;
 
-	if( fav.has_value() ){
+	if( fav.hasValue() ){
 
-		const auto& m = fav.value() ;
+		const auto& m = fav ;
 
 		auto& a = e.cipherFolder ;
 		auto& b = e.mountPoint ;
@@ -284,11 +284,9 @@ static utility::Task _run_task_0( const run_task& e )
 
 static utility::Task _run_task( const run_task& e )
 {
-	auto fav = favorites::instance().readFavorite( e.opts.cipherFolder,e.opts.mountPoint ) ;
+	const auto& m = favorites::instance().readFavorite( e.opts.cipherFolder,e.opts.mountPoint ) ;
 
-	if( fav.has_value() ){
-
-		const auto& m = fav.value() ;
+	if( m.hasValue() ){
 
 		auto& a = e.opts.cipherFolder ;
 		auto& b = e.opts.mountPoint ;
@@ -369,27 +367,48 @@ static engines::engine::cmdStatus _mount( const siritask::mount& s )
 		return { mm,engine } ;
 	}
 
-	if( engine.backendRequireMountPath() ){
+	if( engine.autoCreatesMountPoint() ){
 
-		if( !( _create_folder( opt.mountPoint ) || s.reUseMP ) ){
+		utility::removeFolder( opt.mountPoint,5 ) ;
 
-			return { engines::engine::status::failedToCreateMountPoint,engine } ;
+		auto e = _cmd( { engine,false,opt,opt.key } ) ;
+
+		if( e == engines::engine::status::success ){
+
+			engine.updateVolumeList( opt ) ;
 		}
-	}
 
-	auto e = _cmd( { engine,false,opt,opt.key } ) ;
-
-	if( e != engines::engine::status::success ){
-
-		if( engine.backendRequireMountPath() ){
-
-			siritask::deleteMountFolder( opt.mountPoint ) ;
-		}
+		return e ;
 	}else{
-		engine.updateVolumeList( opt ) ;
-	}
+		auto e = [ & ]()->engines::engine::cmdStatus{
 
-	return e ;
+			if( engine.backendRequireMountPath() ){
+
+				if( !( _create_folder( opt.mountPoint ) || s.reUseMP ) ){
+
+					return { engines::engine::status::failedToCreateMountPoint,engine } ;
+				}
+
+				auto e = _cmd( { engine,false,opt,opt.key } ) ;
+
+				if( e != engines::engine::status::success ){
+
+					utility::removeFolder( opt.mountPoint,5 ) ;
+				}
+
+				return e ;
+			}else{
+				return _cmd( { engine,false,opt,opt.key } ) ;
+			}
+		}() ;
+
+		if( e == engines::engine::status::success ){
+
+			engine.updateVolumeList( opt ) ;
+		}
+
+		return e ;
+	}
 }
 
 static engines::engine::cmdStatus _create( const siritask::create& s )

@@ -216,10 +216,28 @@ public:
 			int numberOfAttempts ;
 		} ;
 
-		struct exe{
-
+		struct exe_args{
+			exe_args( const QString& e,const QStringList& s ) :
+				exe( e ),args( s )
+			{
+			}
+			exe_args()
+			{
+			}
 			QString exe ;
 			QStringList args ;
+		};
+
+		struct exe_args_const{
+			exe_args_const( const exe_args& e ) : exe( e.exe ),args( e.args )
+			{
+			}
+			exe_args_const( const QString& e,const QStringList& s ) :
+				exe( e ),args( s )
+			{
+			}
+			const QString& exe ;
+			const QStringList& args ;
 		};
 
 		class Wrapper{
@@ -359,9 +377,9 @@ public:
 				createOptions() ;
 
 				QString idleTimeOut ;
-				QString createOpts ;
 				QString configFile ;
 				QString keyFile ;
+				QStringList createOpts ;
 				engines::engine::booleanOptions opts ;
 				bool success = true ;
 			} ;
@@ -394,8 +412,8 @@ public:
 				mountOptions() ;
 				QString idleTimeOut ;
 				QString configFile ;
-				QString mountOpts ;
 				QString keyFile ;
+				QStringList mountOpts ;
 				engines::engine::booleanOptions opts ;
 				bool success = true ;
 			} ;
@@ -442,9 +460,10 @@ public:
 			QByteArray key ;
 			QString idleTimeout ;
 			QString configFilePath ;
-			QString mountOptions ;
-			QString createOptions ;
+			QStringList mountOptions ;
+			QStringList createOptions ;
 			QString keyFile ;
+			QString fuseOptionsSeparator ;
 			booleanOptions boolOptions ;
 		} ;
 
@@ -474,6 +493,9 @@ public:
 			bool backendRunsInBackGround ;
 			bool acceptsSubType ;
 			bool acceptsVolName ;
+			bool likeSsh ;
+			bool autoCreatesMountPoint ;
+			bool autoDeletesMountPoint ;
 
 			QByteArray passwordFormat ;
 			QString releaseURL ;
@@ -484,8 +506,13 @@ public:
 			QString incorrectPasswordText ;
 			QString incorrectPassWordCode ;
 			QString configFileArgument ;
+			QString keyFileArgument ;
 			QString windowsInstallPathRegistryKey ;
 			QString windowsInstallPathRegistryValue ;
+			QString windowsExecutableFolderPath ;
+			QString mountControlStructure ;
+			QString createControlStructure ;
+			QString sshOptions ;
 
 			QStringList windowsUnMountCommand ;
 			QStringList unMountCommand ;
@@ -536,6 +563,9 @@ public:
 		bool backendRunsInBackGround() const ;
 		bool acceptsSubType() const ;
 		bool acceptsVolName() const ;
+		bool likeSsh() const ;
+		bool autoCreatesMountPoint() const ;
+		bool autoDeletesMountPoint() const ;
 
 		engines::engine::status notFoundCode() const ;
 
@@ -551,6 +581,7 @@ public:
 
 		const engines::version& installedVersion() const ;
 
+		const QString& sshOptions() const ;
 		const QString& executableFullPath() const ;
 		const QString& minimumVersion() const ;
 		const QString& reverseString() const ;
@@ -559,11 +590,15 @@ public:
 		const QString& executableName() const ;
 		const QString& name() const ;
 		const QString& configFileName() const ;
+		const QString& keyFileArgument() const ;
+		const QString& mountControlStructure() const ;
+		const QString& createControlStructure() const ;
 		const QString& incorrectPasswordText() const ;
 		const QString& incorrectPasswordCode() const ;
 		const QString& configFileArgument() const ;
 		const QString& windowsInstallPathRegistryKey() const ;
 		const QString& windowsInstallPathRegistryValue() const ;
+		const QString& windowsExecutableFolderPath() const ;
 
 		engine::engine::error errorCode( const QString& ) const ;
 
@@ -597,20 +632,27 @@ public:
 		virtual ownsCipherFolder ownsCipherPath( const QString& cipherPath,
 		                                         const QString& configPath ) const ;
 
-		virtual void updateOptions( engines::engine::cmdArgsList&,bool ) const ;
+		virtual void updateOptions( engines::engine::commandOptions& opts,
+					    const engines::engine::cmdArgsList& args,
+					    bool creating ) const ;
+
+		virtual void updateOptions( engines::engine::cmdArgsList&,bool creating ) const ;
 
 		virtual const QProcessEnvironment& getProcessEnvironment() const ;
+
 		virtual bool requiresPolkit() const ;		
+
 		virtual args command( const QByteArray& password,
 				      const engines::engine::cmdArgsList& args,
 				      bool create ) const ;
+
 		virtual engines::engine::status errorCode( const QString& e,int s ) const ;
 
 		virtual void GUICreateOptions( const createGUIOptions& ) const ;
 
 		virtual void GUIMountOptions( const mountGUIOptions& ) const ;
 	protected:
-		bool unmountVolume( const engine::engine::exe& exe,bool usePolkit ) const ;
+		bool unmountVolume( const engine::engine::exe_args_const& exe,bool usePolkit ) const ;
 
 		class commandOptions{
 		public:
@@ -700,7 +742,8 @@ public:
 			} ;
 
 			commandOptions() ;
-			commandOptions( const engines::engine& engine,
+			commandOptions( bool creating,
+			                const engines::engine& engine,
 			                const engines::engine::cmdArgsList& e ) ;
 
 			const QStringList& constExeOptions() const

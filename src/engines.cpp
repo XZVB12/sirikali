@@ -34,26 +34,41 @@
 #include "win.h"
 #include "engines/options.h"
 
+static QStringList _search_path_0( const QString& e )
+{
+	QStringList s = { e,e + "\\bin\\",e + "\\.bin\\" };
+
+	const auto a = QDir( e ).entryList( QDir::Filter::Dirs | QDir::Filter::NoDotAndDotDot ) ;
+
+	for( const auto& it : a ){
+
+		s.append( e + it + "\\" ) ;
+		s.append( e + it + "\\bin\\" ) ;
+		s.append( e + it + "\\.bin\\" ) ;
+	}
+
+	return s ;
+}
+
 static QStringList _search_path( const QStringList& m )
 {
 	const auto a = QDir::homePath().toLatin1() ;
 
 	if( utility::platformIsWindows() ){
 
-		QStringList s = { QDir().currentPath() + "\\bin\\",
-				  a + "\\bin\\",
-				  a + "\\.bin\\",
-				  settings::instance().windowsExecutableSearchPath() + "\\" } ;
+		auto x = _search_path_0( a  + "\\bin\\" ) ;
+		x += _search_path_0( QDir().currentPath() ) ;
+		x += _search_path_0( settings::instance().windowsExecutableSearchPath() + "\\" ) ;
 
 		for( const auto& it : m ){
 
 			if( !it.isEmpty() ){
 
-				s.append( it + "\\bin\\" ) ;
+				x += _search_path_0( it + "\\" ) ;
 			}
 		}
 
-		return s ;
+		return x ;
 	}else{
 		const auto b = a + "/bin/" ;
 		const auto c = a + "/.bin/" ;
@@ -131,7 +146,8 @@ QStringList engines::executableSearchPaths()
 
 QStringList engines::executableSearchPaths( const engines::engine& engine )
 {
-	return _search_path( { SiriKali::Windows::engineInstalledDir( engine ) } ) ;
+	return _search_path( { SiriKali::Windows::engineInstalledDir( engine ),
+			       engine.windowsExecutableFolderPath() } ) ;
 }
 
 QString engines::executableFullPath( const QString& f )
@@ -148,10 +164,6 @@ void engines::version::logError() const
 {
 	auto a = QString( "%1 backend has an invalid version string (%2)" ) ;
 	utility::debug() << a.arg( m_engineName,this->toString() ) ;
-}
-
-engines::engine::~engine()
-{
 }
 
 engines::engine::args engines::engine::command( const QByteArray& password,
@@ -230,7 +242,7 @@ Task::future< QString >& engines::engine::volumeProperties( const QString& ciphe
 	} ) ;
 }
 
-bool engines::engine::unmountVolume( const engines::engine::exe& exe,bool usePolkit ) const
+bool engines::engine::unmountVolume( const engines::engine::exe_args_const& exe,bool usePolkit ) const
 {
 	int timeOut = 10000 ;
 
@@ -241,7 +253,7 @@ bool engines::engine::unmountVolume( const engines::engine::exe& exe,bool usePol
 
 engines::engine::status engines::engine::unmount( const engines::engine::unMount& e ) const
 {
-	auto cmd = [ & ]()->engines::engine::exe{
+	auto cmd = [ & ]()->engines::engine::exe_args{
 
 		if( this->unMountCommand().isEmpty() ){
 
@@ -365,8 +377,25 @@ static QProcessEnvironment _set_env( const engines::engine& engine )
 	return m ;
 }
 
+engines::engine::~engine()
+{
+}
+
+static engines::engine::BaseOptions _update( engines::engine::BaseOptions m )
+{
+	for( auto& it : m.names ){
+
+		if( !it.isEmpty() ){
+
+			it.replace( 0,1,it.at( 0 ).toUpper() ) ;
+		}
+	}
+
+	return m ;
+}
+
 engines::engine::engine( engines::engine::BaseOptions o ) :
-	m_Options( std::move( o ) ),
+	m_Options( _update( std::move( o ) ) ),
 	m_processEnvironment( _set_env( *this ) ),
 	m_exeFullPath( [ this ](){ return engines::executableFullPath( this->executableName(),*this ) ; } ),
 	m_version( this->name(),[ this ](){ return _installedVersion( *this,m_processEnvironment,m_Options.versionInfo ) ; } )
@@ -458,6 +487,21 @@ bool engines::engine::acceptsSubType() const
 bool engines::engine::acceptsVolName() const
 {
 	return m_Options.acceptsVolName ;
+}
+
+bool engines::engine::likeSsh() const
+{
+	return m_Options.likeSsh ;
+}
+
+bool engines::engine::autoCreatesMountPoint() const
+{
+	return m_Options.autoCreatesMountPoint ;
+}
+
+bool engines::engine::autoDeletesMountPoint() const
+{
+	return m_Options.autoDeletesMountPoint ;
 }
 
 bool engines::engine::takesTooLongToUnlock() const
@@ -553,6 +597,21 @@ const QString& engines::engine::configFileName() const
 	}
 }
 
+const QString& engines::engine::keyFileArgument() const
+{
+	return m_Options.keyFileArgument ;
+}
+
+const QString& engines::engine::mountControlStructure() const
+{
+	return m_Options.mountControlStructure ;
+}
+
+const QString& engines::engine::createControlStructure() const
+{
+	return m_Options.createControlStructure ;
+}
+
 const QString& engines::engine::incorrectPasswordText() const
 {
 	return m_Options.incorrectPasswordText ;
@@ -588,6 +647,11 @@ const QString& engines::engine::windowsInstallPathRegistryValue() const
 	return m_Options.windowsInstallPathRegistryValue ;
 }
 
+const QString& engines::engine::windowsExecutableFolderPath() const
+{
+	return m_Options.windowsExecutableFolderPath ;
+}
+
 const QStringList& engines::engine::volumePropertiesCommands() const
 {
 	return m_Options.volumePropertiesCommands ;
@@ -596,6 +660,11 @@ const QStringList& engines::engine::volumePropertiesCommands() const
 const engines::version& engines::engine::installedVersion() const
 {
 	return m_version ;
+}
+
+const QString& engines::engine::sshOptions() const
+{
+	return m_Options.sshOptions ;
 }
 
 const QString& engines::engine::minimumVersion() const
@@ -704,6 +773,15 @@ void engines::engine::updateOptions( engines::engine::cmdArgsList& e,bool s ) co
 {
 	Q_UNUSED( e )
 	Q_UNUSED( s )
+}
+
+void engines::engine::updateOptions( engines::engine::commandOptions& opts,
+				     const engines::engine::cmdArgsList& args,
+				     bool creating ) const
+{
+	Q_UNUSED( creating )
+	Q_UNUSED( opts )
+	Q_UNUSED( args )
 }
 
 QByteArray engines::engine::setPassword( const QByteArray& e ) const
@@ -863,12 +941,16 @@ engines::engine::ownsCipherFolder engines::engine::ownsCipherPath( const QString
 
 	}else if( configFilePath.isEmpty() ){
 
+		QString configPath ;
+
 		auto a = _found( this->configFileNames(),[ & ]( const QString& e ){
 
-			return utility::pathExists( cipherPath + "/" + e ) ;
+			configPath = cipherPath + "/" + e ;
+
+			return utility::pathExists( configPath ) ;
 		} ) ;
 
-		return { a,cipherPath,configFilePath } ;
+		return { a,cipherPath,std::move( configPath ) } ;
 	}else{
 		auto ee = [ & ]( const QString& e ){
 
@@ -1203,26 +1285,32 @@ QString engines::engine::cmdStatus::toString() const
 	return e + "\n----------------------------------------\n" + m_message ;
 }
 
-engines::engine::createGUIOptions::createOptions::createOptions( const QString& createOpts,
+engines::engine::createGUIOptions::createOptions::createOptions( const QString& cOpts,
 								 const QString& configFile,
 								 const QString& keyFile,
 								 const engines::engine::booleanOptions& r ) :
-	createOpts( createOpts ),
 	configFile( configFile ),
 	keyFile( keyFile ),
 	opts( r ),
 	success( true )
 {
+	if( !cOpts.isEmpty() ){
+
+		createOpts = utility::split( cOpts,',' ) ;
+	}
 }
 
-engines::engine::createGUIOptions::createOptions::createOptions( const QString& createOpts,
+engines::engine::createGUIOptions::createOptions::createOptions( const QString& cOpts,
 								 const QString& configFile,
 								 const QString& keyFile ) :
-	createOpts( createOpts ),
 	configFile( configFile ),
 	keyFile( keyFile ),
 	success( true )
 {
+	if( !cOpts.isEmpty() ){
+
+		createOpts = utility::split( cOpts,',' ) ;
+	}
 }
 
 engines::engine::createGUIOptions::createOptions::createOptions( const engines::engine::booleanOptions& r ) :
@@ -1237,19 +1325,27 @@ engines::engine::createGUIOptions::createOptions::createOptions() : success( fal
 engines::engine::mountGUIOptions::mountOptions::mountOptions( const volumeInfo& e ) :
 	idleTimeOut( e.idleTimeOut() ),
 	configFile( e.configFilePath() ),
-	mountOpts( e.mountOptions() ),
 	keyFile( e.keyFile() )
 {
 	opts.unlockInReverseMode = e.reverseMode() ;
+
+	if( !e.mountOptions().isEmpty() ){
+
+		mountOpts = utility::split( e.mountOptions(),',' ) ;
+	}
 }
 
 engines::engine::mountGUIOptions::mountOptions::mountOptions( const favorites::entry& e ) :
 	idleTimeOut( e.idleTimeOut ),
 	configFile( e.configFilePath ),
-	mountOpts( e.mountOptions ),
 	keyFile( e.keyFile )
 {
 	opts.unlockInReverseMode = e.reverseMode ;
+
+	if( !e.mountOptions.isEmpty() ){
+
+		mountOpts = utility::split( e.mountOptions,',' ) ;
+	}
 }
 
 engines::engine::mountGUIOptions::mountOptions::mountOptions( const QString& idleTimeOut,
@@ -1259,10 +1355,13 @@ engines::engine::mountGUIOptions::mountOptions::mountOptions( const QString& idl
 							      const engines::engine::booleanOptions& r ) :
 	idleTimeOut( idleTimeOut ),
 	configFile( configFile ),
-	mountOpts( mountOptions ),
 	keyFile( keyFile ),
 	opts( r )
 {
+	if( !mountOptions.isEmpty() ){
+
+		mountOpts = utility::split( mountOptions,',' ) ;
+	}
 }
 
 engines::engine::mountGUIOptions::mountOptions::mountOptions() : success( false )
@@ -1331,41 +1430,46 @@ engines::engine::args::args()
 {
 }
 
-void engines::engine::encodeSpecialCharacters( QString& e )
-{
-	struct args{
+struct _args{
 
-		const char * first ;
-		const char * second ;
-	} ;
+	const char * first ;
+	const char * second ;
 
-	static std::vector< args > s{ { ",","SiriKaliSpecialCharacter001" } } ;
+	template< typename T >
+	static void replace( QString& e,const T& s )
+	{
+		for( const auto& it : s ){
 
-	for( const auto& it : s ){
-
-		e.replace( it.first,it.second ) ;
+			e.replace( it.first,it.second ) ;
+		}
 	}
+} ;
+
+static void _replace( QString& e )
+{
+	Q_UNUSED( e )
 }
 
+template< typename B,typename ... C >
+static void _replace( QString& a,B&& b,C&& ... c )
+{
+	a.replace( b.first,b.second ) ;
+
+	_replace( a,std::forward< C >( c ) ... ) ;
+}
+
+void engines::engine::encodeSpecialCharacters( QString& e )
+{
+	_replace( e,std::make_pair( ",","SiriKaliSpecialCharacter001" ) ) ;
+}
 
 void engines::engine::decodeSpecialCharacters( QString& e )
 {
-	struct args{
-
-		const char * first ;
-		const char * second ;
-	} ;
-
-	static std::vector< args > s{ { "SiriKaliSpecialCharacter001","," },
-				      { "\\012","\n" },
-				      { "\\040"," " },
-				      { "\\134","\\" },
-				      { "\\011","\\t" } } ;
-
-	for( const auto& it : s ){
-
-		e.replace( it.first,it.second ) ;
-	}
+	_replace( e,std::make_pair( "SiriKaliSpecialCharacter001","," ),
+		    std::make_pair( "\\012","\n" ),
+		    std::make_pair( "\\040"," " ),
+		    std::make_pair( "\\134","\\" ),
+		    std::make_pair( "\\011","\\t" ) ) ;
 }
 
 QString engines::engine::decodeSpecialCharactersConst( const QString& e )
@@ -1381,7 +1485,8 @@ engines::engine::commandOptions::commandOptions()
 {
 }
 
-engines::engine::commandOptions::commandOptions( const engines::engine& engine,
+engines::engine::commandOptions::commandOptions( bool creating,
+						 const engines::engine& engine,
 						 const engines::engine::cmdArgsList& e )
 {
 	auto cipherFolder = [ & ]( QString s ){
@@ -1410,10 +1515,7 @@ engines::engine::commandOptions::commandOptions( const engines::engine& engine,
 
 	bool notLinux = !utility::platformIsLinux() ;
 
-	if( !e.mountOptions.isEmpty() ){
-
-		m_fuseOptions = utility::split( e.mountOptions,',' ) ;
-	}
+	m_fuseOptions = e.mountOptions ;
 
 	for( int i = 0 ; i < m_fuseOptions.size() ; i++ ){
 
@@ -1472,7 +1574,9 @@ engines::engine::commandOptions::commandOptions( const engines::engine& engine,
 		m_fuseOptions.insert( 0,"subtype=" + m_subtype ) ;
 	}
 
-	m_fuseOptions.insert( 0,QString( "fsname=%1@%2" ).arg( name,cipherFolder( e.cipherFolder ) ) ) ;
+	auto m = QString( "fsname=%1@%2" ).arg( name,cipherFolder( e.cipherFolder ) ) ;
+
+	m_fuseOptions.insert( 0,m ) ;
 
 	if( e.boolOptions.unlockInReadOnly ){
 
@@ -1484,6 +1588,8 @@ engines::engine::commandOptions::commandOptions( const engines::engine& engine,
 	m_fuseOptions.insert( 0,m_mode ) ;
 
 	m_fuseOptions.removeAll( QString() ) ;
+
+	engine.updateOptions( *this,e,creating ) ;
 }
 
 void engines::engine::commandOptions::Options::_add( const engines::engine::commandOptions::fuseOptions& s )
