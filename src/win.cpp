@@ -281,7 +281,7 @@ public:
 		return s ;
 	}
 	Task::process::result add( const SiriKali::Windows::opts& ) ;
-	Task::process::result remove(const QStringList& unMountCommand,const QString& mountPoint ) ;
+	Task::process::result remove( const QStringList& unMountCommand,const QString& mountPoint ) ;
 	std::vector< QStringList > commands() const ;
 	QString volumeProperties( const QString& mountPath ) ;
 	void updateVolumeList( std::function< void() > ) ;
@@ -351,7 +351,7 @@ std::vector< QStringList > SiriKali::Windows::volumes::commands() const
 
 		for( auto& m : e ){
 
-			m = mountinfo::encodeMountPath( m ) ;
+			m = engines::engine::encodeMountPath( m ) ;
 		}
 
 		s.emplace_back( std::move( e ) ) ;
@@ -592,7 +592,7 @@ static QString _make_path( QString e,encode s )
 
 	if( s == encode::True ){
 
-		return mountinfo::encodeMountPath( e ) ;
+		return engines::engine::encodeMountPath( e ) ;
 	}else{
 		return e ;
 	}

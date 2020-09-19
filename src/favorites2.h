@@ -41,8 +41,7 @@ public:
 
 	static Task::future< bool >& addKey( secrets::wallet&,
 					     const QString& id,
-					     const QString& key,
-					     const QString& comment ) ;
+					     const QString& key ) ;
 
 	static favorites2& instance( QWidget * parent,
 				     secrets& wallet,
@@ -74,6 +73,7 @@ private :
 	void showUpdatedEntry( const favorites::entry& ) ;
 	void updateFavorite( bool );
 	void toggleAutoMount( void ) ;
+	void setCommand( QLineEdit * ) ;
 	void edit( void ) ;
 	void configPath( void ) ;
 	void removeEntryFromFavoriteList( void ) ;
@@ -91,16 +91,19 @@ private :
 	void ShowUI() ;
 	void HideUI( void ) ;
 	void checkFavoritesConsistency() ;
+	void setUiLikeSsh( const QString& cipherPath,const engines::engine& engine ) ;
+	void setDefaultUI() ;
 	QStringList readAllKeys() ;
-	favorites::entry getEntry( int ) ;
+	const favorites::entry& getEntry( int ) ;
 	QString getExistingFile( const QString& ) ;
 	QString getExistingDirectory( const QString& ) ;
 	void closeEvent( QCloseEvent * ) ;
 	bool eventFilter( QObject * watched,QEvent * event ) ;
-	void addEntries( const QStringList& ) ;
 	Ui::favorites2 * m_ui ;
 	secrets& m_secrets ;
 	QWidget * m_parentWidget ;
+	QMenu m_volPathFav ;
+
 	int m_editRow ;
 	bool m_reverseMode = false ;
 	bool m_volumeNeedNoPassword = false ;

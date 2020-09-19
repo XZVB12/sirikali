@@ -63,6 +63,8 @@ static void _parse( engines::engine::BaseOptions& s,const SirikaliJson& json )
 	s.windowsInstallPathRegistryKey   = json.getString( "windowsInstallPathRegistryKey" ) ;
 	s.windowsInstallPathRegistryValue = json.getString( "windowsInstallPathRegistryValue" ) ;
 	s.windowsExecutableFolderPath     = json.getString( "windowsExecutableFolderPath" ) ;
+	s.displayName                     = json.getString( "displayName" ) ;
+	s.versionMinimum                  = json.getString( "versionMinimum" ) ;
 
 	s.windowsUnMountCommand           = json.getStringList( "windowsUnMountCommand" ) ;
 	s.unMountCommand                  = json.getStringList( "unMountCommand" ) ;
@@ -73,10 +75,25 @@ static void _parse( engines::engine::BaseOptions& s,const SirikaliJson& json )
 	s.fuseNames                       = json.getStringList( "fuseNames" ) ;
 	s.fileExtensions                  = json.getStringList( "fileExtensions" ) ;
 	s.volumePropertiesCommands        = json.getStringList( "volumePropertiesCommands" ) ;
-
 	s.hasConfigFile                   = s.configFileNames.size() > 0 ;
 
 	s.notFoundCode                    = engines::engine::status::customCommandNotFound ;
+
+	auto versionArgumentString        = json.getString( "versionArgumentString" ) ;
+	auto versionOutputStdOut          = json.getBool( "versionOutputStdOut",true ) ;
+	auto versionStringTextPosition    = json.getVector< int >( "versionStringTextPosition" ) ;
+
+	if( !versionArgumentString.isEmpty() && versionStringTextPosition.size() > 1 ){
+
+		engines::engine::BaseOptions::vInfo ss ;
+
+		ss.versionArgument = std::move( versionArgumentString ) ;
+		ss.readFromStdOut  = versionOutputStdOut ;
+		ss.argumentLine    = versionStringTextPosition[ 0 ] ;
+		ss.argumentNumber  = versionStringTextPosition[ 1 ] ;
+
+		s.versionInfo.emplace_back( std::move( ss ) ) ;
+	}
 }
 
 static utility2::result< engines::engine::BaseOptions > _getOptions( QFile& f )
@@ -173,9 +190,9 @@ public:
 		const QString& second ;
 	} ;
 	template< typename ... T >
-	resolve( const T& ... e )
+	resolve( T&& ... e )
 	{
-		this->set( e ... ) ;
+		this->set( std::forward< T >( e ) ... ) ;
 	}
 	QString option( QString a ) const
 	{
@@ -199,15 +216,15 @@ public:
 	}
 private:
 	template< typename T >
-	void set( const T& t )
+	void set( T&& t )
 	{
-		m_opts.emplace_back( t ) ;
+		m_opts.emplace_back( std::forward< T >( t ) ) ;
 	}
 	template< typename E,typename ... T >
-	void set( const E& e,const T& ... t )
+	void set( E&& e,T&& ... t )
 	{
-		this->set( e ) ;
-		this->set( t ... ) ;
+		this->set( std::forward< E >( e ) ) ;
+		this->set( std::forward< T >( t ) ... ) ;
 	}
 	std::vector< resolve::args > m_opts ;
 };
@@ -238,14 +255,14 @@ template< typename ... T >
 static void _resolve( QStringList& orgs,
 		      const QString& name,
 		      const QString& controlStructure,
-		      const T& ... rrr )
+		      T&& ... rrr )
 {	
 	if( controlStructure.isEmpty() ){
 
 		return ;
 	}
 
-	resolve rr( rrr ... ) ;
+	resolve rr( std::forward< T >( rrr ) ... ) ;
 
 	auto m = utility::split( controlStructure,' ' ) ;
 
@@ -365,6 +382,8 @@ static QStringList _resolve( const resolveStruct& r )
 
 		s.set( opts ) ;
 	} ) ;
+
+	mm.removeAll( QString() ) ;
 
 	return mm ;
 }

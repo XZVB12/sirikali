@@ -150,6 +150,7 @@ void createBackendWIndow::save()
 	config[ "windowsInstallPathRegistryKey" ]   = "" ;
 	config[ "windowsInstallPathRegistryValue" ] = "" ;
 	config[ "windowsExecutableFolderPath" ]     = "" ;
+	config[ "displayName" ]                     = "" ;
 	config[ "windowsSupportsMountPointPaths" ]  = m_ui->cbSupportsMountPointPaths->isChecked() ;
 	config[ "windowsSuccessfullyMountedList" ]  = _addList( m_ui->lineEditSuccessfullyMountedText->text() ) ;
 	config[ "executableName" ]              = executable ;
@@ -173,6 +174,10 @@ void createBackendWIndow::save()
 	config[ "likeSsh" ]                     = false ;
 	config[ "autoCreatesMountPoint" ]       = false ;
 	config[ "autoDeletesMountPoint" ]       = false ;
+	config[ "versionArgumentString" ]       = "" ;
+	config[ "versionMinimum" ]              = "" ;
+	config[ "versionOutputStdOut" ]         = true ;
+	config[ "versionStringTextPosition" ]   = std::vector< int >( { 0,0 } ) ;
 
 	if( config.passed() ){
 
