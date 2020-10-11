@@ -19,21 +19,23 @@
         "fuseNames": [
                 "fuse.utahfs"
         ],
-        "idleString": "--idle %{timeout}",
-        "keyFileArgument": "--keyfile %{keyfile}",
+        "idleString": "",
+        "keyFileArgument": "",
         "likeSsh": false,
         "mountControlStructure": "%{mountOptions} -mount %{mountPoint}",
         "names": [
                 "utahfs"
         ],
-        "passwordFormat": "%{password}",
+        "passwordFormat": "",
         "requiresAPassword": false,
         "reverseString": "",
         "runsInBackGround": false,
         "setsCipherPath": false,
-        "sshOptions": "idmap=user,StrictHostKeyChecking=no",
+        "sshOptions": "",
+        "sirikaliMinimumVersion":"",
         "takesTooLongToUnlock": false,
         "unMountCommand": [],
+        "usesOnlyMountPoint": false,
         "versionArgumentString": "",
         "versionMinimum": "",
         "versionOutputStdOut": true,

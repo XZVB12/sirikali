@@ -37,6 +37,7 @@
 #include "plugin.h"
 #include "crypto.h"
 #include "configfileoption.h"
+#include "processManager.h"
 
 static QString _kwallet()
 {
@@ -1032,34 +1033,38 @@ void keyDialog::pbOpen()
 
 		auto wallet = m_ui->lineEditKey->text() ;
 
-		auto kde      = wallet == _kwallet() ;
-		auto gnome    = wallet == _gnomeWallet() ;
-		auto internal = wallet == _internalWallet() ;
-		auto osx      = wallet == _OSXKeyChain() ;
-		auto win      = wallet == _windowsDPAPI() ;
+		bool kde      = false ;
+		bool gnome    = false ;
+		bool internal = false ;
+		bool osx      = false ;
+		bool win      = false ;
 
-		/*
-		 * Figure out which wallet is used. Defaults to 'internal'
-		 */
 		using bk = LXQt::Wallet::BackEnd ;
 
-		bk bkwallet = LXQt::Wallet::BackEnd::internal ;
+		bk bkwallet ;
 
 		if( wallet == _kwallet() ){
 
+			kde = true ;
 			bkwallet = LXQt::Wallet::BackEnd::kwallet ;
 
 		}else if( wallet == _gnomeWallet() ){
 
+			gnome = true ;
 			bkwallet = LXQt::Wallet::BackEnd::libsecret ;
 
 		}else if( wallet == _OSXKeyChain() ){
 
+			osx = true ;
 			bkwallet = LXQt::Wallet::BackEnd::osxkeychain ;
 
 		}else if( wallet == _windowsDPAPI() ){
 
+			win = true ;
 			bkwallet = LXQt::Wallet::BackEnd::windows_dpapi ;
+		}else{
+			internal = true ;
+			bkwallet = LXQt::Wallet::BackEnd::internal ;
 		}
 
 		if( kde || gnome || osx ){
@@ -1200,7 +1205,7 @@ void keyDialog::encryptedFolderCreate()
 
 			m = m_settings.windowsMountPointPath() + m ;
 
-			if( SiriKali::Windows::mountPointTaken( m ) ){
+			if( processManager::get().mountPointTaken( m ) ){
 
 				return this->showErrorMessage( tr( "Mount Point Path Already Taken." ) ) ;
 			}
@@ -1295,7 +1300,7 @@ void keyDialog::encryptedFolderMount()
 
 	if( utility::platformIsWindows() ){
 
-		if( SiriKali::Windows::mountPointTaken( m ) ){
+		if( processManager::get().mountPointTaken( m ) ){
 
 			return this->showErrorMessage( tr( "Mount Point Path Already Taken." ) ) ;
 		}

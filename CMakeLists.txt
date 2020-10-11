@@ -4,7 +4,7 @@ set_property( GLOBAL PROPERTY ALLOW_DUPLICATE_CUSTOM_TARGETS ON )
 
 project( sirikali )
 
-set( PGR_VERSION "1.4.6" )
+set( PGR_VERSION "1.4.7" )
 set( COPYRIGHT_YEARS "2016-2020" )
 
 add_definitions( -Wextra -Wall -pedantic )
@@ -309,6 +309,7 @@ set( SRC 	src/dialogok.cpp
 		src/filemanager.cpp
 		src/utility2.cpp
 		src/win.cpp
+		src/processManager.cpp
 		src/settings.cpp
 		src/engines/options.cpp
 		src/engines/cryfs.cpp

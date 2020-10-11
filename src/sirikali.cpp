@@ -65,6 +65,7 @@
 #include "json.h"
 #include "settings.h"
 #include "engines.h"
+#include "processManager.h"
 
 #include "favorites2.h"
 #include "favorites.h"
@@ -105,11 +106,6 @@ static keyDialog::volumeList _convert_lists( favorites::volumeList s,
 static std::function< void( const QString& ) > _debug()
 {
 	return []( const QString& e ){ utility::debug() << e ; } ;
-}
-
-bool sirikali::cmd( const QStringList& l )
-{
-	return utility::containsAtleastOne( l,"-s","-u","-p","-T","-b" ) ;
 }
 
 static int _print( int s,const QString& m )
@@ -219,24 +215,39 @@ static int _run( App& app,Function function )
 
 int sirikali::run( const QStringList& args,int argc,char * argv[] )
 {
-	auto mm = utility::cmdArgumentValue( args,"-b" ) ;
+	if( utility::containsAtleastOne( args,"-s","-u","-p","-T","-b" ) ){
 
-	if( utility::equalsAtleastOne( mm,"internal","windows_dpapi","gnomewallet",
-				       "libsecret","kwallet","osxkeychain" ) ){
+		auto mm = utility::cmdArgumentValue( args,"-b" ) ;
+
+		if( utility::equalsAtleastOne( mm,"internal","windows_dpapi","gnomewallet",
+					       "libsecret","kwallet","osxkeychain" ) ){
+
+			QApplication srk( argc,argv ) ;
+
+			return _run( srk,[ & ]( secrets& ss ){
+
+				return sirikali::unlockVolume( args,ss ) ;
+			} ) ;
+		}else{
+			QCoreApplication srk( argc,argv ) ;
+
+			return _run( srk,[ & ]( secrets& ss ){
+
+				return _run( mm,args,ss ) ;
+			} ) ;
+		}
+	}else{
+		utility::initGlobals() ;
 
 		QApplication srk( argc,argv ) ;
 
-		return _run( srk,[ & ]( secrets& ss ){
+		srk.setApplicationName( "SiriKali" ) ;
 
-			return sirikali::unlockVolume( args,ss ) ;
-		} ) ;
-	}else{
-		QCoreApplication srk( argc,argv ) ;
+		sirikali app( args ) ;
 
-		return _run( srk,[ & ]( secrets& ss ){
+		QMetaObject::invokeMethod( &app,"start",Qt::QueuedConnection ) ;
 
-			return _run( mm,args,ss ) ;
-		} ) ;
+		return srk.exec() ;
 	}
 }
 
@@ -247,21 +258,6 @@ void miniSiriKali::start()
 
 void miniSiriKali::silenceWarning()
 {
-}
-
-int sirikali::exec( const QStringList& args,int argc,char * argv[] )
-{
-	utility::initGlobals() ;
-
-	QApplication srk( argc,argv ) ;
-
-	srk.setApplicationName( "SiriKali" ) ;
-
-	sirikali app( args ) ;
-
-	QMetaObject::invokeMethod( &app,"start",Qt::QueuedConnection ) ;
-
-	return srk.exec() ;
 }
 
 sirikali::sirikali( const QStringList& args ) :
@@ -1159,7 +1155,7 @@ QByteArray static _get_key( const keyDialog::entry& it,secrets::wallet& m ){
 
 		auto ee = m->readValue( volumePath ) ;
 
-		if( ee.isEmpty() && !name.isLower() ){
+		if( ee.isEmpty() ){
 
 			auto ss = name.toLower() + " " + it.engine.cipherFolder() ;
 
@@ -1263,7 +1259,7 @@ void sirikali::genericVolumeProperties()
 
 		auto row = table->currentRow() ;
 
-		auto m = SiriKali::Windows::volumeProperties( table->item( row,1 )->text() ) ;
+		auto m = processManager::get().volumeProperties( table->item( row,1 )->text() ) ;
 
 		if( m.isEmpty() ){
 
@@ -1369,11 +1365,15 @@ void sirikali::addToFavorites()
 
 	if( cp.size() > 0 ){
 
+		const auto& engine = engines::instance().getByName( cp.at( 2 ) ) ;
+
+		bool m = engine.known() && engine.usesOnlyMountPoint() ;
+
 		favorites2::instance( this,m_secrets,[ this ](){
 
 			this->updateFavoritesInContextMenu() ;
 
-		},engines::instance().getByName( cp.at( 2 ) ),cp.at( 0 ) ) ;
+		},engine,m ? cp.at( 1 ) : cp.at( 0 ) ) ;
 	}
 }
 
@@ -1922,6 +1922,10 @@ void sirikali::runIntervalCustomCommand( const QString& cmd )
 
 			const auto& e = utility::systemEnvironment() ;
 
+			utility::logger logger ;
+
+			logger.showText( cmd,args ) ;
+
 			auto r = [ & ](){
 
 				if( key.isEmpty() ){
@@ -1936,7 +1940,7 @@ void sirikali::runIntervalCustomCommand( const QString& cmd )
 				}
 			}() ;
 
-			utility::logCommandOutPut( r,cmd,args ) ;
+			logger.showText( r ) ;
 		} ) ;
 	} ) ;
 }

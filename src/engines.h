@@ -305,6 +305,7 @@ public:
 			mountPointFolderNotEmpty,
 			IllegalPath,
 
+		        backendFailedToMeetSiriKaliMinimumVersion,
 			fscryptPartialVolumeClose,
 			failedToLoadWinfsp,
 			fscryptKeyFileRequired,
@@ -502,11 +503,13 @@ public:
 			bool likeSsh ;
 			bool autoCreatesMountPoint ;
 			bool autoDeletesMountPoint ;
+			bool usesOnlyMountPoint ;
 
 			QByteArray passwordFormat ;
 			QString displayName ;
 			QString releaseURL ;
 			QString versionMinimum ;
+			QString sirikaliMinimumVersion ;
 			QString reverseString ;
 			QString idleString ;
 			QString executableName ;
@@ -577,6 +580,7 @@ public:
 		bool autoDeletesMountPoint() const ;
 		bool requiresAPassword() const ;
 		bool requiresNoPassword() const ;
+		bool usesOnlyMountPoint() const ;
 
 		engines::engine::status notFoundCode() const ;
 
@@ -595,6 +599,7 @@ public:
 		const QString& sshOptions() const ;
 		const QString& executableFullPath() const ;
 		const QString& minimumVersion() const ;
+		const QString& sirikaliMinimumVersion() const ;
 		const QString& reverseString() const ;
 		const QString& idleString() const ;
 		const QString& releaseURL() const ;

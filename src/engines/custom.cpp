@@ -45,6 +45,7 @@ static void _parse( engines::engine::BaseOptions& s,const SirikaliJson& json )
 	s.likeSsh                         = json.getBool( "likeSsh",false ) ;
 	s.autoCreatesMountPoint           = json.getBool( "autoCreatesMountPoint",false ) ;
 	s.autoDeletesMountPoint           = json.getBool( "autoDeletesMountPoint",false ) ;
+	s.usesOnlyMountPoint              = json.getBool( "usesOnlyMountPoint",false ) ;
 
 	s.backendTimeout                  = json.getInterger( "backendTimeout",0 ) ;
 
@@ -65,6 +66,7 @@ static void _parse( engines::engine::BaseOptions& s,const SirikaliJson& json )
 	s.windowsExecutableFolderPath     = json.getString( "windowsExecutableFolderPath" ) ;
 	s.displayName                     = json.getString( "displayName" ) ;
 	s.versionMinimum                  = json.getString( "versionMinimum" ) ;
+	s.sirikaliMinimumVersion          = json.getString( "sirikaliMinimumVersion" ) ;
 
 	s.windowsUnMountCommand           = json.getStringList( "windowsUnMountCommand" ) ;
 	s.unMountCommand                  = json.getStringList( "unMountCommand" ) ;
@@ -100,7 +102,9 @@ static utility2::result< engines::engine::BaseOptions > _getOptions( QFile& f )
 {
 	engines::engine::BaseOptions s ;
 
-	SirikaliJson json( f,utility::jsonLogger() ) ;
+	utility::logger logger ;
+
+	SirikaliJson json( f,logger.function() ) ;
 
 	if( json.passed() ){
 
