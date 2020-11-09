@@ -166,9 +166,9 @@ static engines::engine::cmdStatus _unmount( const engines::engine::unMount& e )
 		return { engines::engine::status::unknown,engine } ;
 	}
 
-	if( utility::platformIsWindows() || !engine.backendRunsInBackGround() ){
+	if( utility::platformIsWindows() || engine.runsInForeGround() ){
 
-		auto m = [ & ](){
+		const auto& m = [ & ](){
 
 			if( utility::platformIsWindows() ){
 
@@ -253,7 +253,7 @@ struct run_task{
 
 static utility::Task _run_task_0( const run_task& e )
 {
-	if( utility::platformIsWindows() || !e.engine.backendRunsInBackGround() ){
+	if( utility::platformIsWindows() || e.engine.runsInForeGround() ){
 
 		return processManager::get().run( { e.create,e.args,e.opts,e.engine,e.password } ) ;
 	}else{
@@ -266,7 +266,7 @@ static utility::Task _run_task_0( const run_task& e )
 				      e.password,
 				      [](){},
 				      e.engine.requiresPolkit(),
-				      e.engine.backendRunsInBackGround() ) ;
+				      e.engine.runsInBackGround() ) ;
 	}
 }
 
@@ -336,6 +336,65 @@ static engines::engine::cmdStatus _cmd( const cmd_args& e )
 	}
 }
 
+struct result_create_mp{
+
+	engines::engine::status status ;
+	bool deleteMp ;
+} ;
+
+static result_create_mp _create_mount_point( const engines::engine& engine,
+					     const engines::engine::cmdArgsList& opt,
+					     bool reUseMP )
+{
+	QString m ;
+
+	auto isDriveLetter = utility::isDriveLetter( opt.mountPoint ) ;
+
+	if( isDriveLetter ){
+
+		m = "1. Using a drive letter: " + opt.mountPoint ;
+	}else{
+		m = "1. Creating mount point at: " + opt.mountPoint ;
+	}
+
+	auto raii = utility2::make_raii( [ & ](){ utility::debug() << m ; } ) ;
+
+	if( isDriveLetter ){
+
+		return { engines::engine::status::success,false } ;
+
+	}else if( utility::pathExists( opt.mountPoint ) ){
+
+		if( reUseMP ){
+
+			m += "\n2. Mount point exists, using it" ;
+
+		}else if( settings::instance().reUseMountPoint() ){
+
+			m += "\n2. Mount point exists, re using it" ;
+		}else{
+			m += "\n2. Error: Mount point already exists" ;
+
+			return { engines::engine::status::failedToCreateMountPoint,false } ;
+		}
+
+		return { engines::engine::status::success,false } ;
+	}else{
+		m += "\n2. Mount point does not exist, creating it" ;
+
+		if( engine.createMountPath( opt.mountPoint ) ){
+
+			m += "\n3. Mount point created successfully" ;
+
+			return { engines::engine::status::success,true } ;
+		}else{
+			m += "\n3. Error: Failed to create mount point" ;
+
+			return { engines::engine::status::failedToCreateMountPoint,true } ;
+		}
+	}
+}
+
 static engines::engine::cmdStatus _mount( const siritask::mount& s )
 {
 	const auto& Engine = s.engine ;
@@ -372,14 +431,16 @@ static engines::engine::cmdStatus _mount( const siritask::mount& s )
 
 			if( engine.backendRequireMountPath() ){
 
-				if( !( engine.createMountPath( opt.mountPoint ) || s.reUseMP ) ){
+				auto m = _create_mount_point( engine,opt,s.reUseMP ) ;
 
-					return { engines::engine::status::failedToCreateMountPoint,engine } ;
+				if( m.status != engines::engine::status::success ){
+
+					return { m.status,engine } ;
 				}
 
 				auto e = _cmd( { engine,false,opt,opt.key } ) ;
 
-				if( e != engines::engine::status::success ){
+				if( e != engines::engine::status::success && m.deleteMp ){
 
 					engine.deleteFolder( opt.mountPoint,5 ) ;
 				}
@@ -420,7 +481,9 @@ static engines::engine::cmdStatus _create( const siritask::create& s )
 
 	if( engine.backendRequireMountPath() ){
 
-		if( !engine.createMountPath( opt.mountPoint ) ){
+		auto m = _create_mount_point( engine,opt,false ) ;
+
+		if( m.status != engines::engine::status::success ){
 
 			engine.deleteFolder( opt.cipherFolder ) ;
 

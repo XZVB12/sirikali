@@ -23,13 +23,10 @@ struct cryptomator : public engines::engine
 {
 	cryptomator() ;
 
+	engines::engine::ownsCipherFolder ownsCipherPath( const QString& cipherPath,
+							  const QString& configPath ) const override ;
+
 	engines::engine::status errorCode( const QString& e,int s ) const override ;
-
-	engines::engine::args command( const QByteArray& password,
-				       const engines::engine::cmdArgsList& args,
-				       bool create ) const override ;
-
-	bool requiresAPassword( const engines::engine::cmdArgsList& ) const override ;
 
 	void GUIMountOptions( const engines::engine::mountGUIOptions& ) const override ;
 

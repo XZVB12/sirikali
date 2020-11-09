@@ -33,8 +33,8 @@ public:
 	struct mountOpts
 	{
 	        mountOpts( const QString& a,const QString& b,const QString& c,
-		       const QString& d,const QStringList& e ) :
-		mode( a ),subtype( b ),cipherFolder( c ),mountPointPath( d ),fuseOptions( e )
+		       const QString& d,const QStringList& e,const engines::engine& ee ) :
+		mode( a ),subtype( b ),cipherFolder( c ),mountPointPath( d ),fuseOptions( e ),engine( ee )
 		{
 		}
 		QString mode ;
@@ -42,6 +42,7 @@ public:
 		QString cipherFolder ;
 		QString mountPointPath ;
 		QStringList fuseOptions ;
+		const engines::engine& engine ;
 	} ;
 
 	struct opts{
@@ -64,13 +65,52 @@ public:
 	Task::process::result run( const processManager::opts& ) ;
 	Task::process::result add( const processManager::opts& ) ;
 	Task::process::result remove( const QStringList& unMountCommand,const QString& mountPoint ) ;
+	void removeInActive() ;
+	void updateVolumeList( std::function< void() > ) ;
 	std::vector< QStringList > commands() const ;
 	std::vector< engines::engine::Wrapper > enginesList() const ;
-	QString volumeProperties( const QString& mountPath ) ;
-	void updateVolumeList( std::function< void() > ) ;
-	std::vector< processManager::mountOpts > mountOptions() ;
-	bool mountPointTaken( const QString& e ) ;
+	QString volumeProperties( const QString& mountPath ) const ;
+	std::vector< processManager::mountOpts > mountOptions() const ;
+	bool mountPointTaken( const QString& e ) const ;
 private:
+	template< typename A,typename B >
+	void addEntry( A&& a,B&& b )
+	{
+		m_instances.emplace_back( std::forward< A >( a ),std::forward< B >( b ) ) ;
+	}
+	struct result{
+		bool exit ;
+		bool erase ;
+	};
+	template< typename Function >
+	void ProcessEntriesAndRemove( Function&& function )
+	{
+		for( auto it = m_instances.begin() ; it != m_instances.end() ; it++ ){
+
+			auto a = function( *it ) ;
+
+			if( a.erase ){
+
+				m_instances.erase( it ) ;
+			}
+
+			if( a.exit ){
+
+				break ;
+			}
+		}
+	}
+	template< typename Function >
+	void ProcessEntries( Function&& function ) const
+	{
+		for( auto it = m_instances.cbegin() ; it != m_instances.cend() ; it++ ){
+
+			if( function( *it ) ){
+
+				break ;
+			}
+		}
+	}
 	class Process
 	{
 	public:
@@ -122,7 +162,6 @@ private:
 		QProcessEnvironment m_environment ;
 		std::unique_ptr< QProcess,void(*)( QProcess * ) > m_instance ;
 	} ;
-
 	std::vector< Process > m_instances ;
 	std::function< void() > m_updateVolumeList ;
 } ;

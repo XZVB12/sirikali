@@ -42,6 +42,7 @@
 #include "settings.h"
 #include "systemsignalhandler.h"
 #include "keydialog.h"
+#include "tablewidget.h"
 
 #include <vector>
 
@@ -123,6 +124,9 @@ private slots:
 	void updateCheck( void ) ;
 	void autoMountFavoritesOnAvailable( QString ) ;
 private:
+	void mountAll() ;
+	void mountFavorite( const QString& ) ;
+
 	configOptions::functions configOption() ;
 
 	void showTrayIcon() ;
@@ -142,7 +146,7 @@ private:
 
 	void updateFavoritesInContextMenu( void ) ;
 	void runIntervalCustomCommand( const QString& ) ;
-	void updateVolumeList( const std::vector< volumeInfo >& ) ;
+	void updateVolumeList( const mountinfo::List&,bool enableAll = true ) ;
 	void openMountPoint( const QString& ) ;
 	void setLocalizationLanguage( bool ) ;
 	void dragEnterEvent( QDragEnterEvent * ) ;
@@ -156,10 +160,11 @@ private:
 	void setUpShortCuts( void ) ;
 	void showMainWindow( void ) ;
 	void raiseWindow( const QString& = QString() ) ;
-	void autoUnlockVolumes( const std::vector< volumeInfo >& ) ;	
+	void autoUnlockVolumes( const mountinfo::List&,bool autoSetAutoMount = false ) ;
 	keyDialog::volumeList autoUnlockVolumes( favorites::volumeList,
 						 bool autoOpenFolderOnMount = false,
-						 bool skipUnknown = false ) ;
+						 bool skipUnknown = false,
+						 bool autoSetAutoMount = false ) ;
 
 	struct mountedEntry{
 		const QString& cipherPath ;
@@ -167,7 +172,22 @@ private:
 		const QString& volumeType ;
 	};
 
-	void processMountedVolumes( std::function< void( const sirikali::mountedEntry& ) > function ) ;
+	template< typename Function >
+	void processMountedVolumes( QTableWidget * table,Function function )
+	{
+		const auto cipherFolders = tablewidget::columnEntries( table,0 ) ;
+		const auto mountPoints   = tablewidget::columnEntries( table,1 ) ;
+		const auto fileSystems   = tablewidget::columnEntries( table,2 ) ;
+
+		for( auto r = cipherFolders.size() - 1 ; r >= 0 ; r-- ){
+
+			const auto& a = cipherFolders.at( r ) ;
+			const auto& b = mountPoints.at( r ) ;
+			const auto& c = fileSystems.at( r ) ;
+
+			function( { a,b,c } ) ;
+		}
+	}
 
 	engines::engine::cmdStatus unMountVolume( const sirikali::mountedEntry& ) ;
 
@@ -195,7 +215,6 @@ private:
 
 	bool m_startHidden ;
 	bool m_autoOpenFolderOnMount ;
-	bool m_disableEnableAll = false ;
 	bool m_emergencyShuttingDown = false ;
 
 	QString m_sharedFolderPath ;
@@ -214,6 +233,25 @@ private:
 	systemSignalHandler m_signalHandler ;
 
 	const QStringList m_argumentList ;
+
+	class allowEnableAll{
+
+	public:
+		operator bool() const
+		{
+			return m_allowEnableAll ;
+		}
+		void setTrue()
+		{
+			m_allowEnableAll = true ;
+		}
+		void setFalse()
+		{
+			m_allowEnableAll = false ;
+		}
+	private:
+		bool m_allowEnableAll = true ;
+	} m_allowEnableAll ;
 };
 
 #endif // MAINWINDOW_H

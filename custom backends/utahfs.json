@@ -14,7 +14,8 @@
         "createControlStructure": "",
         "displayName":"",
         "executableName": "utahfs-client",
-        "failedToMountTextList": [],
+        "stringsToCheckForFailedMount": [],
+        "stringsToCheckForSuccessfulMount": ["filesystem successfully mounted"],
         "fileExtensions": [],
         "fuseNames": [
                 "fuse.utahfs"
@@ -31,7 +32,7 @@
         "reverseString": "",
         "runsInBackGround": false,
         "setsCipherPath": false,
-        "sshOptions": "",
+        "defaultFavoritesMountOptions": "",
         "sirikaliMinimumVersion":"",
         "takesTooLongToUnlock": false,
         "unMountCommand": [ "fusermount","-u","%{mountPoint}"],
@@ -44,7 +45,6 @@
         "windowsExecutableFolderPath": "",
         "windowsInstallPathRegistryKey": "",
         "windowsInstallPathRegistryValue": "",
-        "windowsSuccessfullyMountedList": ["filesystem successfully mounted"],
         "windowsSupportsMountPointPaths": false,
         "windowsUnMountCommand": [],
         "wrongPasswordErrorCode": "",

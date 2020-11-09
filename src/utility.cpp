@@ -1182,7 +1182,7 @@ static bool _wait_for_finished( QProcess& e,int timeOut,Function wait )
 {
 	for( int i = 0 ; i < timeOut ; i++ ){
 
-		e.waitForFinished( 1000 ) ;
+		e.waitForFinished( 500 ) ;
 
 		if( e.state() == QProcess::Running ){
 
@@ -1481,4 +1481,51 @@ utility::logger& utility::logger::enableDebug()
 QString utility::SiriKaliVersion()
 {
 	return THIS_VERSION ;
+}
+
+#ifdef Q_OS_WIN
+
+QString utility::userName()
+{
+	return {} ;
+}
+
+int utility::userID()
+{
+	return -1 ;
+}
+
+#else
+
+#include <pwd.h>
+
+QString utility::userName()
+{
+	auto m = getpwuid( getuid() ) ;
+
+	if( m ){
+
+		return m->pw_name ;
+	}else{
+		return {} ;
+	}
+}
+
+int utility::userID()
+{
+	auto m = getpwuid( getuid() ) ;
+
+	if( m ){
+
+		return static_cast< int >( m->pw_uid ) ;
+	}else{
+		return {} ;
+	}
+}
+
+#endif
+
+QString utility::userIDAsString()
+{
+	return QString::number( utility::userID() ) ;
 }

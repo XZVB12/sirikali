@@ -278,44 +278,32 @@ public:
 			volumeCreatedSuccessfully,
 
 			backendRequiresPassword,
+			badPassword,
 
-			cryfsBadPassword,
-			encfsBadPassword,
-			sshfsBadPassword,
-			gocryptfsBadPassword,
-			securefsBadPassword,
-			ecryptfsBadPassword,
-			fscryptBadPassword,
-			cryptomatorBadPassword,
-
-			cryptomatorNotFound,
-			sshfsNotFound,
-			cryfsNotFound,
-			encfsNotFound,
-			fscryptNotFound,
-			securefsNotFound,
-			gocryptfsNotFound,
 			ecryptfs_simpleNotFound,
-
-			customCommandNotFound,
-			customCommandBadPassword,
+			engineExecutableNotFound,
+			javaNotFound,
 
 			cryfsMigrateFileSystem,
 			cryfsReplaceFileSystem,
 			cryfsVersionTooOldToMigrateVolume,
+
+			backEndDoesNotSupportCustomConfigPath,
 			notSupportedMountPointFolderPath,
 			mountPointFolderNotEmpty,
 			IllegalPath,
 
 		        backendFailedToMeetSiriKaliMinimumVersion,
+			backEndFailedToMeetMinimumRequirenment,
+
 			fscryptPartialVolumeClose,
 			failedToLoadWinfsp,
 			fscryptKeyFileRequired,
-			backEndFailedToMeetMinimumRequirenment,
+
 			failedToStartPolkit,
 			failedToUnMount,
-			backEndDoesNotSupportCustomConfigPath,
 			failedToCreateMountPoint,
+
 			invalidConfigFileName,
 			backendFail,
 			backendTimedOut,
@@ -403,7 +391,6 @@ public:
 		struct mountGUIOptions{
 
 			struct mountOptions{
-				mountOptions( const volumeInfo& ) ;
 
 				mountOptions( const favorites::entry& ) ;
 
@@ -514,7 +501,6 @@ public:
 			QString sirikaliMinimumVersion ;
 			QString reverseString ;
 			QString idleString ;
-			QString executableName ;
 			QString incorrectPasswordText ;
 			QString incorrectPassWordCode ;
 			QString configFileArgument ;
@@ -524,8 +510,9 @@ public:
 			QString windowsExecutableFolderPath ;
 			QString mountControlStructure ;
 			QString createControlStructure ;
-			QString sshOptions ;
+			QString defaultFavoritesMountOptions ;
 
+			QStringList executableNames ;
 			QStringList windowsUnMountCommand ;
 			QStringList unMountCommand ;
 			QStringList volumePropertiesCommands ;
@@ -574,7 +561,8 @@ public:
 		bool customBackend() const ;
 		bool autorefreshOnMountUnMount() const ;
 		bool backendRequireMountPath() const ;
-		bool backendRunsInBackGround() const ;
+		bool runsInBackGround() const ;
+		bool runsInForeGround() const ;
 		bool acceptsSubType() const ;
 		bool acceptsVolName() const ;
 		bool likeSsh() const ;
@@ -583,6 +571,7 @@ public:
 		bool requiresAPassword() const ;
 		bool requiresNoPassword() const ;
 		bool usesOnlyMountPoint() const ;
+		bool needsJava() const ;
 
 		engines::engine::status notFoundCode() const ;
 
@@ -598,8 +587,10 @@ public:
 
 		const engines::version& installedVersion() const ;
 
-		const QString& sshOptions() const ;
+		const QString& defaultFavoritesMountOptions() const ;
 		const QString& executableFullPath() const ;
+		const QString& javaFullPath() const ;
+
 		const QString& minimumVersion() const ;
 		const QString& sirikaliMinimumVersion() const ;
 		const QString& reverseString() const ;
@@ -811,6 +802,7 @@ public:
 		const QProcessEnvironment m_processEnvironment ;
 		const engines::exeFullPath m_exeFullPath ;
 		const engines::version m_version ;
+		static engines::exeFullPath m_exeJavaFullPath ;
 	} ;
 
 	engines() ;

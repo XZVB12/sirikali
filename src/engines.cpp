@@ -37,6 +37,8 @@
 
 #include <QCoreApplication>
 
+static QString _emptyQString ;
+
 static QStringList _search_path_0( const QString& e )
 {
 	QStringList s = { e,e + "\\bin\\",e + "\\.bin\\" };
@@ -171,14 +173,263 @@ void engines::version::logError() const
 	utility::debug() << a.arg( m_engineName,this->toString() ) ;
 }
 
+struct resolveStruct{
+	const engines::engine& engine ;
+	const QString& controlStructure ;
+	const engines::engine::cmdArgsList& args ;
+	const QByteArray& password ;
+	const QStringList& opts ;
+	const QStringList& fuseOpts ;
+} ;
+
+class resolve{
+public:
+	struct args{
+		const char * first ;
+		const QString& second ;
+	} ;
+	template< typename ... T >
+	resolve( T&& ... e )
+	{
+		this->set( std::forward< T >( e ) ... ) ;
+	}
+	QString option( QString a ) const
+	{
+		for( const auto& it : m_opts ){
+
+			if( !it.second.isEmpty() ){
+
+				a.replace( it.first,it.second ) ;
+			}
+		}
+
+		for( const auto& it : m_opts ){
+
+			if( a.contains( it.first ) ) {
+
+				return {} ;
+			}
+		}
+
+		return a ;
+	}
+private:
+	template< typename T >
+	void set( T&& t )
+	{
+		m_opts.emplace_back( std::forward< T >( t ) ) ;
+	}
+	template< typename E,typename ... T >
+	void set( E&& e,T&& ... t )
+	{
+		this->set( std::forward< E >( e ) ) ;
+		this->set( std::forward< T >( t ) ... ) ;
+	}
+	std::vector< resolve::args > m_opts ;
+};
+
+class replace{
+public:
+	replace( QStringList& s,int position ) :
+		m_stringList( s ),m_position( position )
+	{
+	}
+	void set( const QString& e )
+	{
+		m_stringList.insert( m_position,e ) ;
+	}
+	void set( const QStringList& e )
+	{
+		for( int i = e.size() - 1 ; i >= 0 ; i-- ){
+
+			m_stringList.insert( m_position,e.at( i ) ) ;
+		}
+	}
+private:
+	QStringList& m_stringList ;
+	int m_position ;
+};
+
+template< typename ... T >
+static void _resolve( QStringList& orgs,
+		      const QString& name,
+		      const QString& controlStructure,
+		      T&& ... rrr )
+{
+	if( controlStructure.isEmpty() ){
+
+		return ;
+	}
+
+	resolve rr( std::forward< T >( rrr ) ... ) ;
+
+	auto m = utility::split( controlStructure,' ' ) ;
+
+	if( m.size() == 1 ){
+
+		auto a = rr.option( m.at( 0 ) ) ;
+
+		if( !a.isEmpty() ){
+
+			orgs.append( a ) ;
+		}
+
+	}else if( m.size() == 2 ){
+
+		auto a = rr.option( m.at( 1 ) ) ;
+
+		if( !a.isEmpty() ){
+
+			orgs.append( m.at( 0 ) ) ;
+			orgs.append( a ) ;
+		}
+	}else{
+		auto s = QString( "Wrong control structure detected in custom backend named \"%1\"." ) ;
+		utility::debug::logErrorWhileStarting( s.arg( name ) ) ;
+	}
+}
+
+static QStringList _replace_opts( const resolveStruct& r )
+{
+	auto opts = r.opts ;
+
+	_resolve( opts,
+		  r.engine.name(),
+		  r.engine.configFileArgument(),
+		  resolve::args{ "%{cipherFolder}",r.args.cipherFolder },
+		  resolve::args{ "%{configFileName}",r.engine.configFileName() },
+		  resolve::args{ "%{configFilePath}",r.args.configFilePath } ) ;
+
+	_resolve( opts,
+		  r.engine.name(),
+		  r.engine.keyFileArgument(),
+		  resolve::args{ "%{keyfile}",r.args.keyFile } ) ;
+
+	_resolve( opts,
+		  r.engine.name(),
+		  r.engine.idleString(),
+		  resolve::args{ "%{timeout}",r.args.idleTimeout } ) ;
+
+	return opts ;
+}
+
+template< typename Function >
+static void _replace_opts( QStringList& mm,
+			    const char * controlStructure,
+			    Function function )
+{
+	for( int i = 0 ; i < mm.size() ; i++ ){
+
+		auto& it = mm[ i ] ;
+
+		if( it == controlStructure ){
+
+			mm.removeAt( i ) ;
+
+			function( { mm,i } ) ;
+
+			break ;
+		}
+	}
+}
+
+static QStringList _resolve( const resolveStruct& r )
+{
+	auto mm = utility::split( r.controlStructure,' ' ) ;
+
+	_replace_opts( mm,"%{cipherFolder}",[ & ]( replace s ){
+
+		s.set( r.args.cipherFolder )  ;
+	} ) ;
+
+	_replace_opts( mm,"%{mountPoint}",[ & ]( replace s ){
+
+		s.set( r.args.mountPoint ) ;
+	} ) ;
+
+	_replace_opts( mm,"%{password}",[ & ]( replace s ){
+
+		s.set( r.password ) ;
+	} ) ;
+
+	_replace_opts( mm,"%{fuseOpts}",[ & ]( replace s ){
+
+		if( !r.fuseOpts.isEmpty() ){
+
+			if( r.args.fuseOptionsSeparator.isEmpty() ){
+
+				s.set( { "-o",r.fuseOpts.join( ',' ) } ) ;
+			}else{
+				s.set( { r.args.fuseOptionsSeparator,"-o",r.fuseOpts.join( ',' ) } ) ;
+			}
+		}
+	} ) ;
+
+	_replace_opts( mm,"%{createOptions}",[ & ]( replace s ){
+
+		s.set( _replace_opts( r ) ) ;
+	} ) ;
+
+	_replace_opts( mm,"%{mountOptions}",[ & ]( replace s ){
+
+		auto opts = _replace_opts( r ) ;
+
+		if( r.args.boolOptions.unlockInReverseMode ){
+
+			opts.append( r.engine.reverseString() ) ;
+		}
+
+		s.set( opts ) ;
+	} ) ;
+
+	mm.removeAll( QString() ) ;
+
+	return mm ;
+}
+
 engines::engine::args engines::engine::command( const QByteArray& password,
 						const engines::engine::cmdArgsList& args,
 						bool create ) const
 {
-	Q_UNUSED( password )
-	Q_UNUSED( args )
-	Q_UNUSED( create )
-	return {} ;
+	const auto& engine = *this ;
+
+	engines::engine::commandOptions m( create,engine,args ) ;
+
+	auto s = [ & ](){
+
+		if( create ){
+
+			auto opts = args.createOptions + m.exeOptions().get() ;
+
+			return _resolve( { engine,
+					   engine.createControlStructure(),
+					   args,
+					   password,
+					   opts,
+					   m.fuseOpts().get() } ) ;
+		}else{
+			return _resolve( { engine,
+					   engine.mountControlStructure(),
+					   args,
+					   password,
+					   m.exeOptions().get(),
+					   m.fuseOpts().get() } ) ;
+		}
+	}() ;
+
+	engine.updateOptions( s,args,create ) ;
+
+	const auto& exe = engine.executableFullPath() ;
+
+	if( engine.needsJava() ){
+
+		s.insert( 0,exe ) ;
+		s.insert( 0,"-jar" ) ;
+
+		return { args,m,engine.javaFullPath(),s } ;
+	}else{
+		return { args,m,exe,s } ;
+	}
 }
 
 engines::engine::status engines::engine::errorCode( const QString& e,int s ) const
@@ -404,10 +655,33 @@ static engines::engine::BaseOptions _update( engines::engine::BaseOptions m )
 	return m ;
 }
 
+engines::exeFullPath engines::engine::m_exeJavaFullPath( [](){
+
+	return engines::executableFullPath( "java" ) ;
+} ) ;
+
+static std::function< QString() > _exe_full_path( const QStringList& exe,const engines::engine& engine )
+{
+	return [ & ](){
+
+		for( const auto& it : exe ){
+
+			auto s = engines::executableFullPath( it,engine ) ;
+
+			if( !s.isEmpty() ){
+
+				return s ;
+			}
+		}
+
+		return QString() ;
+	} ;
+}
+
 engines::engine::engine( engines::engine::BaseOptions o ) :
 	m_Options( _update( std::move( o ) ) ),
 	m_processEnvironment( _set_env( *this ) ),
-	m_exeFullPath( [ this ](){ return engines::executableFullPath( this->executableName(),*this ) ; } ),
+	m_exeFullPath( _exe_full_path( m_Options.executableNames,*this ) ),
 	m_version( this->name(),[ this ](){ return _installedVersion( *this,m_processEnvironment,m_Options.versionInfo ) ; } )
 {
 }
@@ -415,6 +689,16 @@ engines::engine::engine( engines::engine::BaseOptions o ) :
 const QString& engines::engine::executableFullPath() const
 {
 	return m_exeFullPath.get() ;
+}
+
+const QString& engines::engine::javaFullPath() const
+{
+	return m_exeJavaFullPath.get() ;
+}
+
+bool engines::engine::needsJava() const
+{
+	return this->executableFullPath().endsWith( ".jar" ) ;
 }
 
 bool engines::engine::isInstalled() const
@@ -499,9 +783,14 @@ bool engines::engine::backendRequireMountPath() const
 	return m_Options.backendRequireMountPath ;
 }
 
-bool engines::engine::backendRunsInBackGround() const
+bool engines::engine::runsInBackGround() const
 {
 	return m_Options.backendRunsInBackGround ;
+}
+
+bool engines::engine::runsInForeGround() const
+{
+	return !this->runsInBackGround() ;
 }
 
 bool engines::engine::acceptsSubType() const
@@ -539,24 +828,14 @@ bool engines::engine::requiresPolkit() const
 	return m_Options.requiresPolkit ;
 }
 
-static bool _create_folder( const QString& m )
-{
-	if( utility::pathExists( m ) ){
-
-		return settings::instance().reUseMountPoint() ;
-	}else{
-		return utility::createFolder( m ) ;
-	}
-}
-
 bool engines::engine::createMountPath( const QString& e ) const
 {
-	return _create_folder( e ) ;
+	return utility::createFolder( e ) ;
 }
 
 bool engines::engine::createCipherPath( const QString& e ) const
 {
-	return _create_folder( e ) ;
+	return utility::createFolder( e ) ;
 }
 
 bool engines::engine::deleteFolder( const QString& e,int count ) const
@@ -622,15 +901,19 @@ const QString& engines::engine::releaseURL() const
 
 const QString& engines::engine::executableName() const
 {
-	return m_Options.executableName ;
+	if( m_Options.executableNames.isEmpty() ){
+
+		return _emptyQString ;
+	}else{
+		return m_Options.executableNames.at( 0 ) ;
+	}
 }
 
 const QString& engines::engine::name() const
 {
 	if( m_Options.names.isEmpty() ){
 
-		static QString s ;
-		return s ;
+		return _emptyQString ;
 	}else{
 		return m_Options.names.first() ;
 	}
@@ -640,8 +923,7 @@ const QString& engines::engine::configFileName() const
 {
 	if( m_Options.configFileNames.isEmpty() ){
 
-		static QString s ;
-		return s ;
+		return _emptyQString ;
 	}else{
 		return m_Options.configFileNames.first() ;
 	}
@@ -729,9 +1011,9 @@ const QString& engines::engine::uiName() const
 	}
 }
 
-const QString& engines::engine::sshOptions() const
+const QString& engines::engine::defaultFavoritesMountOptions() const
 {
-	return m_Options.sshOptions ;
+	return m_Options.defaultFavoritesMountOptions ;
 }
 
 const QString& engines::engine::minimumVersion() const
@@ -791,6 +1073,11 @@ engines::engine::status engines::engine::passAllRequirenments( const engines::en
 	if( this->executableFullPath().isEmpty() ){
 
 		return this->notFoundCode() ;
+	}
+
+	if( this->needsJava() && this->javaFullPath().isEmpty() ){
+
+		return engines::engine::status::javaNotFound ;
 	}
 
 	if( opt.key.isEmpty() && this->requiresAPassword( opt ) ){
@@ -1291,33 +1578,9 @@ QString engines::engine::cmdStatus::toString() const
 
 		return QObject::tr( "Backend Requires A Password." ) ;
 
-	case engines::engine::status::cryfsBadPassword :
+	case engines::engine::status::badPassword :
 
-		return QObject::tr( "Failed To Unlock A Cryfs Volume.\nWrong Password Entered." ) ;
-
-	case engines::engine::status::sshfsBadPassword :
-
-		return QObject::tr( "Failed To Connect To The Remote Computer.\nWrong Password Entered." ) ;
-
-	case engines::engine::status::encfsBadPassword :
-
-		return QObject::tr( "Failed To Unlock An Encfs Volume.\nWrong Password Entered." ) ;
-
-	case engines::engine::status::cryptomatorBadPassword :
-
-		return QObject::tr( "Failed To Unlock A Cryptomator Volume.\nWrong Password Entered." ) ;
-
-	case engines::engine::status::gocryptfsBadPassword :
-
-		return QObject::tr( "Failed To Unlock A Gocryptfs Volume.\nWrong Password Entered." ) ;
-
-	case engines::engine::status::ecryptfsBadPassword :
-
-		return QObject::tr( "Failed To Unlock An Ecryptfs Volume.\nWrong Password Entered." ) ;
-
-	case engines::engine::status::fscryptBadPassword :
-
-		return QObject::tr( "Failed To Unlock An Fscrypt Volume.\nWrong Password Entered." ) ;
+		return QObject::tr( "Failed To Unlock \"%1\" Volume.\nWrong Password Entered." ).arg( m_engine->name() ) ;
 
 	case engines::engine::status::fscryptKeyFileRequired :
 
@@ -1331,33 +1594,13 @@ QString engines::engine::cmdStatus::toString() const
 
 		return QObject::tr( "A Space Character Is Not Allowed In Paths When Using Ecryptfs Backend And Polkit." ) ;
 
-	case engines::engine::status::securefsBadPassword :
-
-		return QObject::tr( "Failed To Unlock A Securefs Volume.\nWrong Password Entered." ) ;
-
-	case engines::engine::status::customCommandBadPassword :
-
-		return QObject::tr( "Failed To Unlock A Custom Volume.\nWrong Password Entered." ) ;
-
-	case engines::engine::status::cryptomatorNotFound :
-
-		return QObject::tr( "Failed To Complete The Request.\nCryptomator Executable Could Not Be Found." ) ;
-
-	case engines::engine::status::sshfsNotFound :
-
-		return QObject::tr( "Failed To Complete The Request.\nSshfs Executable Could Not Be Found." ) ;
-
-	case engines::engine::status::fscryptNotFound :
-
-		return QObject::tr( "Failed To Complete The Request.\nFscrypt Executable Could Not Be Found." ) ;
-
 	case engines::engine::status::backEndDoesNotSupportCustomConfigPath :
 
 		return QObject::tr( "Backend Does Not Support Custom Configuration File Path." ) ;
 
-	case engines::engine::status::cryfsNotFound :
+	case engines::engine::status::engineExecutableNotFound :
 
-		return QObject::tr( "Failed To Complete The Request.\nCryfs Executable Could Not Be Found." ) ;
+		return QObject::tr( "Failed To Complete The Request.\n%1 Executable Could Not Be Found." ).arg( m_engine->name() ) ;
 
 	case engines::engine::status::backendTimedOut :
 
@@ -1383,21 +1626,13 @@ QString engines::engine::cmdStatus::toString() const
 
 		return QObject::tr( "Mount Point Folder Path Is Not Empty." ) ;
 
-	case engines::engine::status::encfsNotFound :
-
-		return QObject::tr( "Failed To Complete The Request.\nEncfs Executable Could Not Be Found." ) ;
-
 	case engines::engine::status::ecryptfs_simpleNotFound :
 
 		return QObject::tr( "Failed To Complete The Request.\nEcryptfs-simple Executable Could Not Be Found." ) ;
 
-	case engines::engine::status::gocryptfsNotFound :
+	case engines::engine::status::javaNotFound :
 
-		return QObject::tr( "Failed To Complete The Request.\nGocryptfs Executable Could Not Be Found." ) ;
-
-	case engines::engine::status::securefsNotFound :
-
-		return QObject::tr( "Failed To Complete The Request.\nSecurefs Executable Could Not Be Found." ) ;
+		return QObject::tr( "Failed To Complete The Request.\nJava Executable Could Not Be Found." ) ;
 
 	case engines::engine::status::failedToCreateMountPoint :
 
@@ -1429,10 +1664,6 @@ QString engines::engine::cmdStatus::toString() const
 	case engines::engine::status::fscryptPartialVolumeClose :
 
 		return QObject::tr( "Folder Not Fully Locked Because Some Files Are Still In Use." ) ;
-
-	case engines::engine::status::customCommandNotFound :
-
-		return QObject::tr( "Failed To Complete The Request.\nThe Executable For This Backend Could Not Be Found." ) ;
 
 	case engines::engine::status::invalidConfigFileName :
 
@@ -1492,19 +1723,6 @@ engines::engine::createGUIOptions::createOptions::createOptions( const engines::
 
 engines::engine::createGUIOptions::createOptions::createOptions() : success( false )
 {
-}
-
-engines::engine::mountGUIOptions::mountOptions::mountOptions( const volumeInfo& e ) :
-	idleTimeOut( e.idleTimeOut() ),
-	configFile( e.configFilePath() ),
-	keyFile( e.keyFile() )
-{
-	opts.unlockInReverseMode = e.reverseMode() ;
-
-	if( !e.mountOptions().isEmpty() ){
-
-		mountOpts = utility::split( e.mountOptions(),',' ) ;
-	}
 }
 
 engines::engine::mountGUIOptions::mountOptions::mountOptions( const favorites::entry& e ) :

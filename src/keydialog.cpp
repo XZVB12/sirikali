@@ -116,7 +116,7 @@ keyDialog::keyDialog( QWidget * parent,
 
 		if( e.favorite().autoMount ){
 
-			if( it.engine->requiresNoPassword() ){
+			if( it.engine->requiresNoPassword() || it.volEntry.favorite().volumeNeedNoPassword ){
 
 				m_volumes.emplace_back( std::move( it ) ) ;
 
@@ -138,7 +138,7 @@ keyDialog::keyDialog( QWidget * parent,
 
 		const auto& e = it.volEntry ;
 
-		if( it.engine->requiresNoPassword() ){
+		if( it.engine->requiresNoPassword() || e.favorite().volumeNeedNoPassword ){
 
 			m_volumes.emplace_back( std::move( it ) ) ;
 
@@ -1188,7 +1188,7 @@ void keyDialog::pbOK()
 
 void keyDialog::encryptedFolderCreate()
 {
-	utility2::raii deleteKey( [ & ](){ m_walletKey.deleteKey() ; } ) ;
+	auto deleteKey = utility2::make_raii( [ & ](){ m_walletKey.deleteKey() ; } ) ;
 
 	auto path = m_ui->lineEditFolderPath->text() ;
 

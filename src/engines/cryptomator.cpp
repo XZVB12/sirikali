@@ -32,7 +32,7 @@ static engines::engine::BaseOptions _setOptions()
 	s.backendTimeout              = 0 ;
 	s.takesTooLongToUnlock        = false ;
 	s.supportsMountPathsOnWindows = false ;
-	s.autorefreshOnMountUnMount   = false ;
+	s.autorefreshOnMountUnMount   = true ;
 	s.backendRequireMountPath     = true ;
 	s.backendRunsInBackGround     = false ;
 	s.autoCreatesMountPoint       = false ;
@@ -42,7 +42,7 @@ static engines::engine::BaseOptions _setOptions()
 	s.requiresPolkit        = false ;
 	s.customBackend         = false ;
 	s.requiresAPassword     = true ;
-	s.hasConfigFile         = true ;
+	s.hasConfigFile         = false ;
 	s.autoMountsOnCreate    = false ;
 	s.hasGUICreateOptions   = false ;
 	s.setsCipherPath        = true ;
@@ -50,19 +50,19 @@ static engines::engine::BaseOptions _setOptions()
 	s.acceptsVolName        = false ;
 	s.releaseURL            = "https://api.github.com/repos/cryptomator/cli/releases" ;
 	s.passwordFormat        = "" ;
-	s.executableName        = "cryptomator-cli.jar" ;
 	s.incorrectPasswordText = "InvalidPassphraseException" ;
-	s.configFileArgument    = "%{unused}" ;
+	s.configFileArgument    = "" ;
 	s.keyFileArgument       = "" ;
+	s.executableNames          = QStringList{ "cryptomator-cli","cryptomator-cli.jar" } ;
 	s.volumePropertiesCommands = QStringList{} ;
 	s.windowsUnMountCommand    = QStringList{} ;
 	s.configFileNames          = QStringList{ "masterkey.cryptomator" } ;
 	s.fuseNames                = QStringList{ "fuse.cryptomator" } ;
 	s.names                    = QStringList{ "cryptomator" } ;
-	s.failedToMountList        = QStringList{ " ERROR " } ;
+	s.failedToMountList        = QStringList{ " ERROR ","Exception" } ;
 	s.successfulMountedList    = QStringList{ "Mounted to" } ;
 	s.unMountCommand           = QStringList{ "SIGTERM" } ;
-	s.notFoundCode             = engines::engine::status::cryptomatorNotFound ;
+	s.notFoundCode             = engines::engine::status::engineExecutableNotFound ;
 	s.versionInfo              = { {} } ;
 
 	s.mountControlStructure    = "--vault %{cipherFolder} -fusemount %{mountPoint}" ;
@@ -76,13 +76,21 @@ cryptomator::cryptomator() :
 {
 }
 
+engines::engine::ownsCipherFolder cryptomator::ownsCipherPath( const QString& cipherPath,
+							       const QString& configPath ) const
+{
+	bool s = utility::pathExists( cipherPath + "/masterkey.cryptomator" ) ;
+
+	return { s,cipherPath,configPath } ;
+}
+
 void cryptomator::updateOptions( QStringList& opts,
 				 const engines::engine::cmdArgsList& e,
 				 bool creating ) const
 {
 	Q_UNUSED( creating )
 
-	auto vaultName = crypto::getRandomData( 8 ).toHex() ;
+	auto vaultName = crypto::sha256( e.mountPoint ).mid( 0,16 ) ;
 
 	for( int i = 0 ; i < opts.size() ; i++ ){
 
@@ -99,28 +107,16 @@ void cryptomator::updateOptions( QStringList& opts,
 	}
 }
 
-engines::engine::args cryptomator::command( const QByteArray& password,
-					    const engines::engine::cmdArgsList& args,
-					    bool create ) const
-{
-	return custom::set_command( *this,password,args,create ) ;
-}
-
 engines::engine::status cryptomator::errorCode( const QString& e,int s ) const
 {
 	Q_UNUSED( s )
 
 	if( e.contains( this->incorrectPasswordText() ) ){
 
-		return engines::engine::status::cryptomatorBadPassword ;
+		return engines::engine::status::badPassword ;
 	}else{
 		return engines::engine::status::backendFail ;
 	}
-}
-
-bool cryptomator::requiresAPassword( const engines::engine::cmdArgsList& opt ) const
-{
-	return engines::engine::requiresAPassword( opt ) ;
 }
 
 void cryptomator::GUIMountOptions( const engines::engine::mountGUIOptions& s ) const

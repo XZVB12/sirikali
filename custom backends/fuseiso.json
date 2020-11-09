@@ -12,7 +12,8 @@
         "createControlStructure": "",
         "displayName":"",
         "executableName": "fuseiso",
-        "failedToMountTextList": [],
+        "stringsToCheckForFailedMount": [],
+        "stringsToCheckForSuccessfulMount": [],
         "fileExtensions": [
                  ".iso"," .nrg"," .bin"," .mdf",".img"
         ],
@@ -31,7 +32,7 @@
         "reverseString": "",
         "runsInBackGround": true,
         "setsCipherPath": true,
-        "sshOptions": "",
+        "defaultFavoritesMountOptions": "",
         "sirikaliMinimumVersion":"",
         "takesTooLongToUnlock": false,
         "unMountCommand": [],
@@ -44,7 +45,6 @@
         "windowsExecutableFolderPath": "",
         "windowsInstallPathRegistryKey": "",
         "windowsInstallPathRegistryValue": "",
-        "windowsSuccessfullyMountedList": [],
         "windowsSupportsMountPointPaths": false,
         "windowsUnMountCommand": [],
         "wrongPasswordErrorCode": "",
