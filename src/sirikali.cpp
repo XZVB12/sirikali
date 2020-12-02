@@ -1,4 +1,4 @@
-/*
+﻿/*
  *
  *  Copyright (c) 2012-2015
  *  name : Francis Banyikwa
@@ -143,7 +143,9 @@ static int _run( const QString& mm,const QStringList& args,secrets& ss )
 
 			if( a == volume || b == volume ){
 
-				if( siritask::encryptedFolderUnMount( { a,b,c,5 } ).success() ){
+				const auto& engine = engines::instance().getByName( c ) ;
+
+				if( siritask::encryptedFolderUnMount( { a,b,engine,5 } ).success() ){
 
 					siritask::deleteMountFolder( b ) ;
 
@@ -478,7 +480,7 @@ void sirikali::setUpApp( const QString& volume )
 
 	this->showTrayIcon() ;
 
-	if( utility::platformIsNOTWindows() ){
+	if( utility::platformIsNOTWindows() && checkUpdates::hasNetworkSupport() ){
 
 		QTimer::singleShot( settings::instance().checkForUpdateInterval(),this,SLOT( autoUpdateCheck() ) ) ;
 	}
@@ -607,8 +609,12 @@ void sirikali::setUpAppMenu()
 
 	if( utility::platformIsNOTWindows() ){
 
-		m->addAction( _addAction( false,false,tr( "Check For Updates" ),"Check For Updates",
-					  SLOT( updateCheck() ) ) ) ;
+		auto ac = _addAction( false,false,tr( "Check For Updates" ),"Check For Updates",
+				      SLOT( updateCheck() ) ) ;
+
+		ac->setEnabled( checkUpdates::hasNetworkSupport() ) ;
+
+		m->addAction( ac ) ;
 	}
 	m->addAction( _addAction( false,false,tr( "Unmount All" ),
 				  "Unmount All",SLOT( unMountAll() ) ) ) ;
@@ -771,47 +777,39 @@ void sirikali::setLocalizationLanguage( bool translate )
 
 void sirikali::startGUI( const QString& volume )
 {
-	mountinfo::unlockedVolumes().then( [ this,volume ]( mountinfo::List m ){
+	auto m = settings::instance().autoMountFavoritesOnStartUp() ;
+
+	if( m_startHidden ){
+
+		this->startGUI( volume,m ) ;
+	}else{
+		this->disableAll() ;
+
+		this->showMainWindow() ;
+
+		auto s = settings::instance().delayBeforeAutoMountAtStartup() ;
+
+		utility::Timer( s * 1000,[ this,volume,m ](){
+
+			this->startGUI( volume,m ) ;
+		} ) ;
+	}
+}
+
+void sirikali::startGUI( const QString& volume,bool autoMountAtStartUp )
+{
+	mountinfo::unlockedVolumes().then( [ = ]( mountinfo::List m ){
 
 		this->updateVolumeList( m,false ) ;
 
-		if( !m_startHidden ){
+		if( autoMountAtStartUp ){
 
-			this->showMainWindow() ;
+			this->autoUnlockVolumes( m ) ;
 		}
 
-		if( settings::instance().autoMountFavoritesOnStartUp() ){
+		this->autoMount( volume ) ;
 
-			auto s = settings::instance().delayBeforeAutoMountAtStartup() ;
-
-			if( s == 0 ){
-
-				this->autoUnlockVolumes( m ) ;
-
-				this->autoMount( volume ) ;
-
-				utility::applicationStarted() ;
-			}else{
-				this->disableAll() ;
-
-				QString a = "Waiting for %1 seconds before auto mounting" ;
-
-				utility::debug() << a.arg( QString::number( s ) ) ;
-
-				utility::Timer( s * 1000,[ this,volume,m = std::move( m ) ](){
-
-					this->autoUnlockVolumes( m ) ;
-
-					this->autoMount( volume ) ;
-
-					utility::applicationStarted() ;
-				} ) ;
-			}
-		}else{
-			this->autoMount( volume ) ;
-
-			utility::applicationStarted() ;
-		}
+		utility::applicationStarted() ;
 	} ) ;
 }
 
@@ -1838,7 +1836,7 @@ void sirikali::autoMount( const QString& vv )
 
 	if( volume.isEmpty() ){
 
-		return ;
+		return this->enableAll() ;
 	}
 
 	auto& favorites = favorites::instance() ;
@@ -2127,11 +2125,11 @@ void sirikali::updateList( const volumeInfo& e )
 
 engines::engine::cmdStatus sirikali::unMountVolume( const sirikali::mountedEntry& e )
 {
-	auto s = siritask::encryptedFolderUnMount( { e.cipherPath,e.mountPoint,e.volumeType,5 } ) ;
+	const auto& engine = engines::instance().getByName( e.volumeType ) ;
 
-	const auto& m = s.engine() ;
+	auto s = siritask::encryptedFolderUnMount( { e.cipherPath,e.mountPoint,engine,5 } ) ;
 
-	if( s.success() && m.backendRequireMountPath() ){
+	if( s.success() && engine.backendRequireMountPath() ){
 
 		utility::Timer( 1000,[ s = e.mountPoint ](){
 
@@ -2200,6 +2198,7 @@ void sirikali::emergencyShutDown()
 void sirikali::unMountAll()
 {
 	m_mountInfo.announceEvents( false ) ;
+	m_allowEnableAll.setFalse() ;
 
 	this->disableAll() ;
 
@@ -2226,6 +2225,8 @@ void sirikali::unMountAll()
 			DialogMsg( this ).ShowUIOK( tr( "WARNING" ),tr( "Failed To Unmount %1 Volumes." ).arg( m ) ) ;
 		}
 	}
+
+	m_allowEnableAll.setTrue() ;
 
 	this->updateList() ;
 
@@ -2285,14 +2286,15 @@ void sirikali::slotCurrentItemChanged( QTableWidgetItem * current,QTableWidgetIt
 
 void sirikali::disableAll()
 {
-	if( !utility::platformIsOSX() ){
+	m_ui->pbmenu->setEnabled( false ) ;
+	m_ui->tableWidget->setEnabled( false ) ;
+	m_ui->pbunlockvolume->setEnabled( false ) ;
+	m_ui->pbcreate->setEnabled( false ) ;
+	m_ui->pbFavorites->setEnabled( false ) ;
 
-		m_ui->pbmenu->setEnabled( false ) ;
+	if( !utility::miscOptions::instance().starting() ){
+
 		m_ui->pbupdate->setEnabled( false ) ;
-		m_ui->tableWidget->setEnabled( false ) ;
-		m_ui->pbunlockvolume->setEnabled( false ) ;
-		m_ui->pbcreate->setEnabled( false ) ;
-		m_ui->pbFavorites->setEnabled( false ) ;
 	}
 }
 

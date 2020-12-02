@@ -96,6 +96,7 @@ private slots:
 	void closeApplication( int = 0,const QString& = QString() ) ;
 	void unlockVolume( bool ) ;
 	void startGUI( const QString& ) ;
+	void startGUI( const QString&,bool ) ;
 	void autoMount( const QString& ) ;
 	void defaultButton( void ) ;
 	void itemClicked( QTableWidgetItem * ) ;
@@ -241,15 +242,37 @@ private:
 		{
 			return m_allowEnableAll ;
 		}
-		void setTrue()
+		void setTrue( int token = -1 )
 		{
-			m_allowEnableAll = true ;
+			/*
+			 * Only the person who knows the token can uset the option.
+			 * Normal users set token of -1, super users set higher number tokens.
+			 */
+			if( token == m_token ){
+
+				m_token = -1 ;
+				m_allowEnableAll = true ;
+			}
 		}
-		void setFalse()
+		void setFalse( int token = -1 )
 		{
-			m_allowEnableAll = false ;
+			if( token != -1 && m_token != -1 ){
+
+				utility::debug() << "Warning: Two users with super token just collided" ;
+
+				return ;
+			}
+			/*
+			 * Option can be changed only if token is unset or set by normal user.
+			 */
+			if( m_token == -1 ){
+
+				m_token = token ;
+				m_allowEnableAll = false ;
+			}
 		}
 	private:
+		int m_token = -1 ;
 		bool m_allowEnableAll = true ;
 	} m_allowEnableAll ;
 };

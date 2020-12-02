@@ -39,6 +39,20 @@
 
 static QString _emptyQString ;
 
+static QStringList _system_search_paths()
+{
+	return { "/usr/local/bin/",
+		 "/usr/local/sbin/",
+		 "/usr/bin/",
+		 "/usr/sbin/",
+		 "/bin/",
+		 "/sbin/",
+		 "/opt/local/bin/",
+		 "/opt/local/sbin/",
+		 "/opt/bin/",
+		 "/opt/sbin/" } ;
+}
+
 static QStringList _search_path_0( const QString& e )
 {
 	QStringList s = { e,e + "\\bin\\",e + "\\.bin\\" };
@@ -79,19 +93,9 @@ static QStringList _search_path( const QStringList& m )
 		const auto c = a + "/.bin/" ;
 		const auto d = QCoreApplication::applicationDirPath().toUtf8() ;
 
-		return { "/usr/local/bin/",
-			"/usr/local/sbin/",
-			"/usr/bin/",
-			"/usr/sbin/",
-			"/bin/",
-			"/sbin/",
-			"/opt/local/bin/",
-			"/opt/local/sbin/",
-			"/opt/bin/",
-			"/opt/sbin/",
-			 b.constData(),
-			 c.constData(),
-			 d.constData() } ;
+		auto m = QStringList{ b.constData(),c.constData(),d.constData() } ;
+
+		return _system_search_paths() + m ;
 	}
 }
 
@@ -155,6 +159,11 @@ QStringList engines::executableSearchPaths( const engines::engine& engine )
 {
 	return _search_path( { SiriKali::Windows::engineInstalledDir( engine ),
 			       engine.windowsExecutableFolderPath() } ) ;
+}
+
+QString engines::executableNotEngineFullPath( const QString& e )
+{
+	return _executableFullPath( e,[](){ return _system_search_paths() ; } ) ;
 }
 
 QString engines::executableFullPath( const QString& f )
@@ -517,7 +526,7 @@ engines::engine::status engines::engine::unmount( const engines::engine::unMount
 
 				return { "umount",{ e.mountPoint } } ;
 			}else{
-				return { "fusermount",{ "-u",e.mountPoint } } ;
+				return { this->fuserMountPath(),{ "-u",e.mountPoint } } ;
 			}
 		}else{
 			auto s = this->unMountCommand() ;
@@ -573,13 +582,22 @@ static QString _sanitizeVersionString( const QString& s )
 	return m ;
 }
 
-static engines::engineVersion _installedVersion( const engines::engine& e,
+static engines::engineVersion _installedVersion( engines::exeFullPath& javaExe,
+						 const engines::engine& e,
 						 const QProcessEnvironment env,
 						 const engines::engine::BaseOptions::vInfo& v )
 {
 	const auto& cmd = e.executableFullPath() ;
 
-	const auto r = utility::unwrap( ::Task::process::run( cmd,{ v.versionArgument },-1,{},env ) ) ;
+	const auto r = [ & ](){
+
+		if( e.needsJava() ){
+
+			return utility::unwrap( ::Task::process::run( javaExe.get(),{ "-jar",cmd,v.versionArgument },-1,{},env ) ) ;
+		}else{
+			return utility::unwrap( ::Task::process::run( cmd,{ v.versionArgument },-1,{},env ) ) ;
+		}
+	}() ;
 
 	const auto m = utility::split( v.readFromStdOut ? r.std_out() : r.std_error(),'\n' ) ;
 
@@ -597,13 +615,14 @@ static engines::engineVersion _installedVersion( const engines::engine& e,
 }
 
 template< typename T >
-static engines::engineVersion _installedVersion( const engines::engine& e,
+static engines::engineVersion _installedVersion( engines::exeFullPath& javaExe,
+						 const engines::engine& e,
 						 const QProcessEnvironment env,
 						 const T& v )
 {
 	for( const auto& it : v ){
 
-		auto m = _installedVersion( e,env,it ) ;
+		auto m = _installedVersion( javaExe,e,env,it ) ;
 
 		if( m.valid() ){
 
@@ -637,6 +656,99 @@ engines::engine::~engine()
 {
 }
 
+static engines::engine::terminate_result _failed_to_finish( QString exe,QStringList args )
+{
+	auto a = Task::process::result( "BackendFailedToFinish",
+					QByteArray(),
+					-1,
+					0,
+					true ) ;
+
+	return { std::move( a ),std::move( exe ),std::move( args ) } ;
+}
+
+engines::engine::terminate_result
+engines::engine::terminateProcess( const engines::engine::terminate_process& e ) const
+{
+	auto args = [ & ](){
+
+		if( utility::platformIsWindows() ){
+
+			return this->windowsUnMountCommand() ;
+		}else{
+			return this->unMountCommand() ;
+		}
+	}() ;
+
+	if( args.isEmpty() ){
+
+		auto a = "SiriKali Error: Unmount Command Not Set" ;
+		auto b = Task::process::result( a,QByteArray(),-1,0,true ) ;
+
+		return { std::move( b ),{},{} } ;
+	}
+
+	QString exe = args.takeAt( 0 ) ;
+
+	if( exe == "SIGTERM" ){
+
+		utility::debug() << "Terminating a process by sending it SIGTERM" ;
+
+		e.exe.terminate() ;
+
+		if( utility::waitForFinished( e.exe ) ){
+
+			auto a = Task::process::result( QByteArray(),
+							QByteArray(),
+							0,
+							0,
+							true ) ;
+
+			return { std::move( a ),std::move( exe ),std::move( args ) } ;
+		}else{
+			return _failed_to_finish( std::move( exe ),std::move( args ) ) ;
+		}
+	}
+
+	for( auto& it : args ){
+
+		if( it == "%{PID}" ){
+
+			it = QString::number( e.exe.processId() ) ;
+
+		}else if( it == "%{mountPoint}" ){
+
+			it = e.mountPath ;
+		}
+	}
+
+	utility::logger logger ;
+
+	logger.showText( exe,args ) ;
+
+	auto m = utility::unwrap( Task::process::run( exe,args,-1,"",this->getProcessEnvironment() ) ) ;
+
+	logger.showText( m ) ;
+
+	if( m.success() ){
+
+		if( utility::waitForFinished( e.exe ) ){
+
+			return { std::move( m ),std::move( exe ),std::move( args ) } ;
+		}else{
+			return _failed_to_finish( std::move( exe ),std::move( args ) ) ;
+		}
+	}else{
+		return { std::move( m ),std::move( exe ),std::move( args ) } ;
+	}
+}
+
+engines::engine::terminate_result engines::engine::terminateProcess( const QString& mountPath ) const
+{
+	Q_UNUSED( mountPath )
+	return engines::engine::terminate_result() ;
+}
+
 static engines::engine::BaseOptions _update( engines::engine::BaseOptions m )
 {
 	for( auto& it : m.names ){
@@ -657,7 +769,12 @@ static engines::engine::BaseOptions _update( engines::engine::BaseOptions m )
 
 engines::exeFullPath engines::engine::m_exeJavaFullPath( [](){
 
-	return engines::executableFullPath( "java" ) ;
+	return engines::executableNotEngineFullPath( "java" ) ;
+} ) ;
+
+engines::exeFullPath engines::engine::m_exeFuserMount( [](){
+
+	return engines::executableNotEngineFullPath( "fusermount" ) ;
 } ) ;
 
 static std::function< QString() > _exe_full_path( const QStringList& exe,const engines::engine& engine )
@@ -682,7 +799,7 @@ engines::engine::engine( engines::engine::BaseOptions o ) :
 	m_Options( _update( std::move( o ) ) ),
 	m_processEnvironment( _set_env( *this ) ),
 	m_exeFullPath( _exe_full_path( m_Options.executableNames,*this ) ),
-	m_version( this->name(),[ this ](){ return _installedVersion( *this,m_processEnvironment,m_Options.versionInfo ) ; } )
+	m_version( this->name(),[ this ](){ return _installedVersion( m_exeJavaFullPath,*this,m_processEnvironment,m_Options.versionInfo ) ; } )
 {
 }
 
@@ -694,6 +811,11 @@ const QString& engines::engine::executableFullPath() const
 const QString& engines::engine::javaFullPath() const
 {
 	return m_exeJavaFullPath.get() ;
+}
+
+const QString & engines::engine::fuserMountPath() const
+{
+	return m_exeFuserMount.get() ;
 }
 
 bool engines::engine::needsJava() const

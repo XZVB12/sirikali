@@ -42,7 +42,7 @@ static engines::engine::BaseOptions _setOptions()
 	s.requiresPolkit        = false ;
 	s.customBackend         = false ;
 	s.requiresAPassword     = true ;
-	s.hasConfigFile         = false ;
+	s.hasConfigFile         = true ;
 	s.autoMountsOnCreate    = false ;
 	s.hasGUICreateOptions   = false ;
 	s.setsCipherPath        = true ;
@@ -59,20 +59,22 @@ static engines::engine::BaseOptions _setOptions()
 	s.configFileNames          = QStringList{ "masterkey.cryptomator" } ;
 	s.fuseNames                = QStringList{ "fuse.cryptomator" } ;
 	s.names                    = QStringList{ "cryptomator" } ;
-	s.failedToMountList        = QStringList{ " ERROR ","Exception" } ;
+	s.failedToMountList        = QStringList{ " ERROR ","Exception","fuse: unknown option" } ;
 	s.successfulMountedList    = QStringList{ "Mounted to" } ;
-	s.unMountCommand           = QStringList{ "SIGTERM" } ;
+	s.unMountCommand           = QStringList{ "fusermount","-u","%{mountPoint}" } ;
 	s.notFoundCode             = engines::engine::status::engineExecutableNotFound ;
-	s.versionInfo              = { {} } ;
+	s.versionInfo              = { { "--version",true,0,0 } } ;
+	s.versionMinimum           = "0.4.5" ;
 
-	s.mountControlStructure    = "--vault %{cipherFolder} -fusemount %{mountPoint}" ;
+	s.mountControlStructure    = "--foreground --vault %{cipherFolder} --fusemount %{mountPoint} --mountFlags %{fuseOpts}" ;
 	s.createControlStructure   = "" ;
 
 	return s ;
 }
 
 cryptomator::cryptomator() :
-	engines::engine( _setOptions() )
+	engines::engine( _setOptions() ),
+	m_version_greater_or_equal_0_4_5( false,*this,this->minimumVersion() )
 {
 }
 
@@ -89,22 +91,9 @@ void cryptomator::updateOptions( QStringList& opts,
 				 bool creating ) const
 {
 	Q_UNUSED( creating )
+	Q_UNUSED( e )
 
-	auto vaultName = crypto::sha256( e.mountPoint ).mid( 0,16 ) ;
-
-	for( int i = 0 ; i < opts.size() ; i++ ){
-
-		auto& it = opts[ i ] ;
-
-		if( it == e.cipherFolder ){
-
-			it = vaultName + "=" + e.cipherFolder ;
-
-		}else if( it == e.mountPoint ){
-
-			it  = vaultName + "=" + e.mountPoint ;
-		}
-	}
+	opts.removeOne( "-o" ) ;
 }
 
 engines::engine::status cryptomator::errorCode( const QString& e,int s ) const
@@ -130,4 +119,14 @@ void cryptomator::GUIMountOptions( const engines::engine::mountGUIOptions& s ) c
 	ee.enableKeyFile  = false ;
 
 	e.ShowUI() ;
+}
+
+engines::engine::status cryptomator::passAllRequirenments( const engines::engine::cmdArgsList& opt ) const
+{
+	if( m_version_greater_or_equal_0_4_5 ){
+
+		return engines::engine::passAllRequirenments( opt ) ;
+	}else{
+		return engine::engine::status::backEndFailedToMeetMinimumRequirenment ;
+	}
 }

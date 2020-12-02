@@ -38,6 +38,7 @@ class engines
 public:
 	class engine ;
 
+	static QString executableNotEngineFullPath( const QString& ) ;
 	static QString executableFullPath( const QString& ) ;
 	static QString executableFullPath( const QString&,const engines::engine& ) ;
 
@@ -212,7 +213,7 @@ public:
 
 			const QString& cipherFolder ;
 			const QString& mountPoint ;
-			const QString& fileSystem ;
+			const engines::engine& engine ;
 			int numberOfAttempts ;
 		} ;
 
@@ -588,8 +589,10 @@ public:
 		const engines::version& installedVersion() const ;
 
 		const QString& defaultFavoritesMountOptions() const ;
+
 		const QString& executableFullPath() const ;
 		const QString& javaFullPath() const ;
+		const QString& fuserMountPath() const ;
 
 		const QString& minimumVersion() const ;
 		const QString& sirikaliMinimumVersion() const ;
@@ -616,6 +619,23 @@ public:
 		engine( BaseOptions ) ;
 
 		virtual ~engine() ;
+
+		struct terminate_process{
+
+			QProcess& exe ;
+			const QString& mountPath ;
+		};
+
+		struct terminate_result{
+
+			Task::process::result result ;
+			QString exe ;
+			QStringList args ;
+		} ;
+
+		virtual terminate_result terminateProcess( const terminate_process& ) const ;
+
+		virtual terminate_result terminateProcess( const QString& mountPath ) const ;
 
 		virtual engine::engine::error errorCode( const QString& ) const ;
 
@@ -803,6 +823,7 @@ public:
 		const engines::exeFullPath m_exeFullPath ;
 		const engines::version m_version ;
 		static engines::exeFullPath m_exeJavaFullPath ;
+		static engines::exeFullPath m_exeFuserMount ;
 	} ;
 
 	engines() ;
