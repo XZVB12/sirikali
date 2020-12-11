@@ -204,7 +204,7 @@ keyDialog::keyDialog( QWidget * parent,secrets& s,
 
 	this->setUpInitUI() ;
 
-	this->setUpVolumeProperties( { favorites::instance().unknown() } ) ;
+	this->setUpVolumeProperties( {} ) ;
 
 	m_ui->lineEditMountPoint->setText( QString() ) ;
 
@@ -675,11 +675,11 @@ void keyDialog::pbOptions()
 
 			m_checked = true ;
 
-			const auto& f = favorites::instance().readFavorite( m_path ) ;
+			auto f = favorites::instance().readFavorite( m_path ) ;
 
-			if( f.hasValue() ){
+			if( f.has_value() ){
 
-				m_mountOptions = f ;
+				m_mountOptions = f.value() ;
 			}
 		}
 

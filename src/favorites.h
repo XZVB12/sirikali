@@ -112,13 +112,15 @@ public:
 
 	struct entry
 	{
+		static const favorites::entry& empty()
+		{
+			static favorites::entry s ;
+
+			return s ;
+		}
+
 		entry() ;
 		entry( const QString& volumePath,const QString& mountPath = QString() ) ;
-
-		bool hasValue() const
-		{
-			return !volumePath.isEmpty() ;
-		}
 
 		QString volumePath ;
 		QString mountPointPath ;
@@ -151,15 +153,21 @@ public:
 
 	class volEntry{
 	public:
-		template< typename E,typename P >
-		volEntry( E&& e,P&& p,bool manage ) :
-			m_favorite( this->entry( std::forward< E >( e ),manage ) ),
+		volEntry() : m_favorite( std::addressof( favorites::entry::empty() ) )
+		{
+		}
+		volEntry( const QString& e ) :
+			m_favorite( this->entry( e ) )
+		{
+		}
+		template< typename P >
+		volEntry( favorites::entry&& e,P&& p ) :
+			m_favorite( this->entry( std::move( e ) ) ),
 			m_password( std::forward< P >( p ) )
 		{
 		}
-		template< typename E >
-		volEntry( E&& e,bool manage ) :
-			m_favorite( this->entry( std::forward< E >( e ),manage ) ),
+		volEntry( favorites::entry&& e ) :
+			m_favorite( this->entry( std::move( e ) ) ),
 			m_password( m_favorite->password )
 		{
 		}
@@ -187,38 +195,18 @@ public:
 		{
 			m_password = std::forward< T >( e ) ;
 		}
-		void setAutoMount( bool s )
-		{
-			auto m = m_tmpFavorite.get() ;
-
-			if( m ){
-
-				utility::debug() << "Changing a setting of a temporary favorite: " + m->volumePath ;
-
-				m->autoMount = s ;
-			}else{
-				QString aa = "Creating a copy of a favorite at: %1\nto change a setting" ;
-
-				utility::debug() << aa.arg( m_favorite->volumePath ) ;
-
-				auto a = *m_favorite ;
-				a.autoMount = s ;
-
-				m_favorite = this->entry( std::move( a ),true ) ;
-			}
-		}
+		void setAutoMount( bool s ) ;
 	private:
-		template< typename E >
-		const favorites::entry * entry( E&& e,bool manage )
+		const favorites::entry * entry( favorites::entry&& e )
 		{
-			Q_UNUSED( manage )
 			utility::debug() << "Favorites managing temporary entry: " + e.volumePath ;
-			m_tmpFavorite = std::make_unique< favorites::entry >( std::forward< E >( e ) ) ;
+			m_tmpFavorite = std::make_unique< favorites::entry >( std::move( e ) ) ;
 			return m_tmpFavorite.get() ;
 		}
 		std::unique_ptr< favorites::entry > m_tmpFavorite ;
 		const favorites::entry * m_favorite ;
 		QByteArray m_password ;
+		static favorites::entry m_static_favorite_entry ;
 	};
 
 	using volumeList = std::vector< volEntry > ;
@@ -232,22 +220,56 @@ public:
 
 	const std::vector< favorites::entry >& readFavorites() const ;
 
-	volumeList readVolumeList() const ;
+	template< typename Function,
+		  std::enable_if_t< std::is_same< std::result_of_t< Function( const favorites::entry& ) >,bool >::value,int > = 0 >
+	void entries( Function&& function ) const
+	{
+		for( const auto& it : m_favorites ){
 
-	const favorites::entry& readFavoriteByPath( const QString& configPath ) const ;
+			if( function( it ) ){
 
-	favorites::entry readFavoriteByFileSystemPath( const QString& configPath ) const ;
+				break ;
+			}
+		}
+	}
 
-	const favorites::entry& unknown() const ;
+	template< typename Function,
+		  typename NotFound,
+		  std::enable_if_t< std::is_same< std::result_of_t< Function( const favorites::entry& ) >,bool >::value,int > = 0 >
+	void entries( Function&& function,NotFound&& notFound ) const
+	{
+		for( const auto& it : m_favorites ){
 
-	const favorites::entry& readFavorite( const QString& volumePath,
-					      const QString& mountPath = QString() ) const ;
+			if( function( it ) ){
+
+				return ;
+			}
+		}
+
+		notFound() ;
+	}
+
+	template< typename Function,
+		  std::enable_if_t< std::is_void< std::result_of_t< Function( const favorites::entry& ) > >::value,int > = 0 >
+	void entries( Function&& function ) const
+	{
+		for( const auto& it : m_favorites ){
+
+			function( it ) ;
+		}
+	}
+
+	utility2::result_ref< const favorites::entry& > readFavoriteByPath( const QString& configPath ) const ;
+
+	utility2::result< favorites::entry > readFavoriteByFileSystemPath( const QString& configPath ) const ;
+
+	utility2::result_ref< const favorites::entry& > readFavorite( const QString& volumePath,
+								      const QString& mountPath = QString() ) const ;
 
 	favorites() ;
 private:
 	void reload() ;
 	std::vector< favorites::entry > m_favorites ;
-	favorites::entry m_empty ;
 };
 
 #endif // FAVORITES_H
