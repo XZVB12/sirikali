@@ -485,7 +485,7 @@ volumeInfo::List engines::engine::mountInfo( const volumeInfo::List& e ) const
 Task::future< QString >& engines::engine::volumeProperties( const QString& cipherFolder,
 							    const QString& mountPoint ) const
 {
-	return Task::run( [ = ](){
+	return Task::run( [ this,cipherFolder,mountPoint ](){
 
 		for( const auto& it : this->volumePropertiesCommands() ){
 
@@ -564,6 +564,12 @@ engines::engine::status engines::engine::unmount( const engines::engine::unMount
 const QProcessEnvironment& engines::engine::getProcessEnvironment() const
 {
 	return m_processEnvironment ;
+}
+
+utility2::LOGLEVEL engines::engine::allowLogging(  const QStringList& args ) const
+{
+	Q_UNUSED( args )
+	return utility2::LOGLEVEL::COMMAND_AND_UNLOCK_DURATION ;
 }
 
 static QString _sanitizeVersionString( const QString& s )
@@ -2066,14 +2072,13 @@ engines::engine::commandOptions::commandOptions( bool creating,
 
 	auto _volname = []( QString& e ){
 
-		if( e.size() > 40 ){
+		if( e.size() > 8 + 32 ){
 			/*
-			 * we are making sure that volname value does not exceed 32 characters.
-			 * 40 is the sum of characters in "volname="(8) plus the value that must be
-			 * less or equal to 32.
+			 * 8 is the size of "volname=" and 32 is the maximum size allowed
+			 * to be stored in volname. If the value stored is more than 32
+			 * characters, we truncate it to 29 characters and then add three dots.
 			 */
-
-			e = e.mid( 0,37 ) + "...," ;
+			e = e.mid( 0,8 + 29 ) + "..." ;
 		}
 	} ;
 
@@ -2091,9 +2096,19 @@ engines::engine::commandOptions::commandOptions( bool creating,
 
 		if( e.startsWith( '-' ) ){
 
-			m_exeOptions.append( utility::split( e,' ' ) ) ;
+			if( engine.likeSsh() && e.startsWith( "-o " ) ){
 
-			m_fuseOptions.removeAt( i ) ;
+				auto a = utility::split( e,' ' ) ;
+
+				if( a.size() > 1 ){
+
+					e = a.at( 1 ) ;
+				}
+			}else{
+				m_exeOptions.append( utility::split( e,' ' ) ) ;
+
+				m_fuseOptions.removeAt( i ) ;
+			}
 
 			i-- ;
 

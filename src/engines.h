@@ -178,11 +178,11 @@ public:
 	class versionGreaterOrEqual : public cache< utility::bool_result >{
 	public:
 	        versionGreaterOrEqual( bool m,const engines::engine& engine,int major,int minor,int patch ) :
-		        cache( [ =,&engine ](){ return this->setCallback( m,engine,major,minor,patch ) ; } )
+		        cache( [ this,&engine,m,major,minor,patch ](){ return this->setCallback( m,engine,major,minor,patch ) ; } )
 		{
 		}
 		versionGreaterOrEqual( bool m,const engines::engine& engine,const QString& e ) :
-		        cache( [ =,&engine ](){ return this->setCallback( m,engine,e ) ; } )
+		        cache( [ this,&engine,m,e ](){ return this->setCallback( m,engine,e ) ; } )
 		{
 		}
 		operator bool() const
@@ -720,6 +720,9 @@ public:
 
 		virtual const QProcessEnvironment& getProcessEnvironment() const ;
 
+
+		virtual utility2::LOGLEVEL allowLogging( const QStringList& ) const ;
+
 		virtual bool requiresPolkit() const ;
 
 		virtual bool createMountPath( const QString& ) const ;
@@ -785,13 +788,25 @@ public:
 				{
 					return m_options ;
 				}
-				QString extractStartsWith( const QString& e )
+				utility2::result< QString > extractStartsWith( const QString& e )
 				{
 					for( int i = 0 ; i < m_options.size() ; i++ ){
 
 						if( m_options[ i ].startsWith( e ) ){
 
 							return m_options.takeAt( i ) ;
+						}
+					}
+
+					return {} ;
+				}
+				utility2::result_ref< QString& > optionStartsWith( const QString& e )
+				{
+					for( int i = 0 ; i < m_options.size() ; i++ ){
+
+						if( m_options[ i ].startsWith( e ) ){
+
+							return m_options[ i ] ;
 						}
 					}
 
