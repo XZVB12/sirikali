@@ -9,7 +9,10 @@ set( COPYRIGHT_YEARS "2016-2020" )
 
 add_definitions( -Wextra -Wall -pedantic )
 
-if( CMAKE_COMPILER_IS_GNUCC AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 10.0.0)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 10.0.0 )
+	set( CMAKE_CXX_STANDARD 20 )
+	MESSAGE( STATUS "Setting C++ version to C++20" )
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"  AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 10.0.0)
 	set( CMAKE_CXX_STANDARD 20 )
 	MESSAGE( STATUS "Setting C++ version to C++20" )
 else()
@@ -131,14 +134,14 @@ endif()
 
 if( UNIX AND NOT APPLE )
 
-        find_package( Qt5 COMPONENTS Core Widgets Network DBus REQUIRED )
+	find_package( Qt5 COMPONENTS Core Widgets Network DBus REQUIRED )
 
 	message( STATUS "Found Qt5Widgets, version  ${Qt5Widgets_VERSION}" )
 	message( STATUS "Found Qt5Core, version  ${Qt5Core_VERSION}" )
 	message( STATUS "Found Qt5Network, version  ${Qt5Network_VERSION}" )
 	message( STATUS "Found Qt5DBus, version  ${Qt5DBus_VERSION}" )
 else()
-        find_package( Qt5 COMPONENTS Core Widgets Network REQUIRED )
+	find_package( Qt5 COMPONENTS Core Widgets Network REQUIRED )
 
 	message( STATUS "Found Qt5Widgets, version  ${Qt5Widgets_VERSION}" )
 	message( STATUS "Found Qt5Core, version  ${Qt5Core_VERSION}" )
@@ -146,7 +149,7 @@ else()
 endif()
 
 pkg_check_modules( MCHUNGU_NETWORK mhogomchungu_network )
-pkg_check_modules( MCHUNGU_TASK mhogomchungu_task )
+#pkg_check_modules( MCHUNGU_TASK mhogomchungu_task )
 
 file( WRITE ${PROJECT_BINARY_DIR}/version.h "
 #ifndef THIS_VERSION
